@@ -55,6 +55,33 @@ pode ler nada da clínica B.
 
 ---
 
+## Fotografar pelo celular
+
+Quando a prévia é aberta num computador, a webcam do monitor não serve: não
+enquadra rosto de perto, e a validação de qualidade reprova. A tela de captura
+oferece **Fotografar pelo celular** — no computador ela vira a ação principal.
+
+O computador mostra um QR, o celular abre, fotografa, e a foto volta **direto de
+um aparelho para o outro** por WebRTC, cifrada. O servidor troca só as descrições
+de sessão do WebRTC; nenhum byte de imagem passa por ele.
+
+Requisitos e limites, todos deliberados:
+
+- **Mesma rede.** Sem STUN e sem TURN: um relay levaria os bytes por um terceiro
+  e um STUN público entregaria os endereços da clínica. Fora da mesma rede a
+  ligação falha com mensagem que diz o que fazer.
+- **HTTPS.** `RTCPeerConnection` só existe em contexto seguro. Em
+  desenvolvimento, use um túnel HTTPS ou teste em ambiente publicado — o celular
+  em `http://<ip>:3000` não pareia.
+- **Cinco minutos.** O pareamento expira e é queimado assim que se completa.
+- O celular limpa a foto antes de enviar — HEIC vira JPEG, 2048 px, EXIF e GPS
+  apagados — e não a grava em lugar nenhum.
+
+Isso emenda a regra de ouro: a foto passa a existir em dois aparelhos da clínica.
+A justificativa está em D-16 no [`DECISIONS.md`](./DECISIONS.md).
+
+---
+
 ## Comandos
 
 | Comando | O que faz |
@@ -67,6 +94,22 @@ pode ler nada da clínica B.
 | `pnpm test:e2e` | Playwright em viewport de iPad, retrato e paisagem |
 | `pnpm db:reset` | Recria o banco local a partir das migrations |
 | `node scripts/generate-icons.mjs` | Regera os ícones da PWA |
+
+### Bancada de render
+
+`/diagnostico/render` monta o simulador com foto e geometria sintéticas, sem
+detecção e sem paciente. Só existe fora de produção.
+
+Ela existe porque os defeitos que quebram a tela do simulador não aparecem em
+`tsc`, em `eslint` nem em teste de unidade — aparecem como tela preta. Dois já
+aconteceram: um programa GLSL que não ligava por precisão de uniform divergente
+(D-18), e uma animação com `fill-mode: both` que sobrescrevia o `transform` que
+posiciona os pontos das regiões.
+
+```bash
+pnpm dev                                       # num terminal
+E2E_BASE_URL=http://localhost:3000 pnpm exec playwright test render
+```
 
 ### Testes que precisam de ambiente
 
@@ -89,6 +132,8 @@ app/(app)/presets           protocolos da clínica
 lib/face                    landmarker, atlas, hit-test, escala em DIP, qualidade
 lib/warp                    campo de deslocamento, shaders, máscaras, pipeline Pixi
 lib/db/dexie.ts             fotos e sessões locais
+lib/pairing                 ponte WebRTC celular → computador
+app/captura/[pairId]        tela do celular, rota pública
 lib/export/ficha.ts         PDF antes/depois com marca d'água
 store/useSessionStore.ts    zustand + zundo (undo/redo)
 supabase/migrations         SQL versionado, RLS em todas as tabelas

@@ -94,6 +94,13 @@ export class DisplacementField {
         vertex: defaultFilterVert,
         fragment: FIELD_FRAGMENT,
         name: 'previa-field',
+        // O Pixi injeta `highp` no vertex e `mediump` no fragmento. Como o
+        // fragmento redeclara uniforms do vertex (uInputSize, uOutputFrame), a
+        // precisão precisa bater: GLSL ES recusa ligar o programa quando o mesmo
+        // uniform aparece com precisões diferentes, e o resultado é uma tela
+        // preta sem erro de compilação. Fora isso, meia precisão em coordenada
+        // de textura de uma foto de 2048 px produz salto visível na amostragem.
+        preferredFragmentPrecision: 'highp',
       }),
       resources: {
         fieldUniforms: this.uniforms,

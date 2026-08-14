@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { IconCompare, IconRedo, IconUndo } from '@/components/icons'
 import { Button } from '@/components/ui/Button'
-import type { RegionInstance } from '@/lib/face/atlas'
+import { anchorIndexFor, type RegionInstance } from '@/lib/face/atlas'
 import { clientPointToImage, hitTest, imagePointToClient } from '@/lib/face/hitTest'
 import type { FaceGeometry, Point2 } from '@/lib/face/types'
 import { buildFicha, deliverFicha } from '@/lib/export/ficha'
@@ -89,6 +89,9 @@ export function Simulator({
   // precisam do mesmo retângulo que o `object-fit: contain` do canvas usa.
   const [stageSize, setStageSize] = useState<Size>({ width: 0, height: 0 })
   const [ready, setReady] = useState(false)
+  // Nomes das regiões desligados por padrão: o conteúdo é o rosto, e o chrome
+  // recua. Ligado, é uma consulta de segundos, não um estado de trabalho.
+  const [showLabels, setShowLabels] = useState(false)
   const [compareOpen, setCompareOpen] = useState(false)
   const [beforeBlob, setBeforeBlob] = useState<Blob | null>(null)
   const [afterBlob, setAfterBlob] = useState<Blob | null>(null)
@@ -361,14 +364,40 @@ export function Simulator({
     [stageSize.height, stageSize.width],
   )
 
+  /**
+   * Pontos das regiões disponíveis.
+   *
+   * Só as regiões que aceitam a técnica ativa. Desenhar as outras apagadas
+   * enchia o rosto de rótulo inútil — e o rosto é o conteúdo.
+   *
+   * O ponto fica no landmark de ancoragem da região, não no centróide do
+   * polígono. Em região alongada como a linha mandibular, o centro do fecho
+   * convexo cai no meio da bochecha: longe da mandíbula e por cima do ponto de
+   * outra região.
+   */
   const chips = useMemo(() => {
     if (stageSize.width === 0) return []
-    return regionInstances.map((instance) => ({
-      instance,
-      position: imagePointToClient(instance.centroid, stageRect, geometry.width, geometry.height),
-      enabled: instance.region.techniques.includes(activeTechnique),
-    }))
-  }, [activeTechnique, geometry.height, geometry.width, regionInstances, stageRect, stageSize.width])
+
+    return regionInstances
+      .filter((instance) => instance.region.techniques.includes(activeTechnique))
+      .map((instance) => {
+        const anchor = geometry.landmarks[anchorIndexFor(instance.region, instance.side)]
+        const point = anchor ? { x: anchor.x, y: anchor.y } : instance.centroid
+        return {
+          instance,
+          point,
+          position: imagePointToClient(point, stageRect, geometry.width, geometry.height),
+        }
+      })
+  }, [
+    activeTechnique,
+    geometry.height,
+    geometry.landmarks,
+    geometry.width,
+    regionInstances,
+    stageRect,
+    stageSize.width,
+  ])
 
   const markers = useMemo(() => {
     if (stageSize.width === 0) return []
@@ -395,34 +424,51 @@ export function Simulator({
         className="absolute inset-0 touch-none"
         onPointerDown={handleStagePointerDown}
       >
-        {chips.map(({ instance, position, enabled }) => (
-          <button
+        {/* Posição e animação vivem em elementos separados de propósito: a
+            cascata anima `transform`, e uma animação com `fill-mode: both`
+            vence o estilo inline na cascata do CSS — o `transform: none` do
+            último quadro apagaria a posição e empilharia todos os pontos no
+            canto da tela. */}
+        {chips.map(({ instance, point, position }) => (
+          <span
             key={instance.key}
-            type="button"
-            disabled={!enabled}
-            aria-label={`${instance.region.label}${
-              instance.side === 'center' ? '' : instance.side === 'left' ? ', lado esquerdo' : ', lado direito'
-            }. Aplicar ${TECHNIQUE_LABELS[activeTechnique].toLowerCase()}.`}
-            style={
-              {
-                transform: `translate(${position.x}px, ${position.y}px) translate(-50%, -50%)`,
-                // A cascata sobe: mento primeiro, testa por último.
-                '--cascade-index': instance.region.cascadeOrder,
-              } as React.CSSProperties
-            }
-            className={[
-              'previa-cascade absolute top-0 left-0 flex touch-44 items-center justify-center',
-              'rounded-capsule px-1.5 text-footnote whitespace-nowrap material',
-              enabled ? 'text-label' : 'text-label-tertiary',
-            ].join(' ')}
-            onPointerDown={(event) => {
-              event.stopPropagation()
-              if (!enabled) return
-              addAt(instance, instance.centroid)
+            className="absolute top-0 left-0"
+            style={{
+              transform: `translate(${position.x}px, ${position.y}px) translate(-50%, -50%)`,
             }}
           >
-            {instance.region.label}
-          </button>
+            <button
+              type="button"
+              aria-label={`${instance.region.label}${
+                instance.side === 'center'
+                  ? ''
+                  : instance.side === 'left'
+                    ? ', lado esquerdo'
+                    : ', lado direito'
+              }. Aplicar ${TECHNIQUE_LABELS[activeTechnique].toLowerCase()}.`}
+              // A cascata sobe: mento primeiro, testa por último.
+              style={{ '--cascade-index': instance.region.cascadeOrder } as React.CSSProperties}
+              className="previa-cascade flex touch-44 items-center justify-center"
+              onPointerDown={(event) => {
+                event.stopPropagation()
+                addAt(instance, point)
+              }}
+            >
+              {/* Anel, não cápsula com rótulo. Quinze rótulos sobre um rosto de
+                  poucas centenas de pixels cobrem o rosto. O nome vive no
+                  aria-label, aparece no painel ao selecionar, e todos aparecem
+                  de uma vez em "Nomes". */}
+              <span
+                aria-hidden="true"
+                className="block size-1.5 rounded-capsule border-2 border-label opacity-70"
+              />
+              {showLabels ? (
+                <span className="material pointer-events-none absolute top-full rounded-capsule px-1 text-caption whitespace-nowrap text-label">
+                  {instance.region.label}
+                </span>
+              ) : null}
+            </button>
+          </span>
         ))}
 
         {markers.map(({ application, position }) => (
@@ -468,6 +514,17 @@ export function Simulator({
         </div>
 
         <div className="pointer-events-auto flex items-center gap-0.5 rounded-capsule material px-0.5">
+          <button
+            type="button"
+            aria-pressed={showLabels}
+            onClick={() => setShowLabels((visible) => !visible)}
+            className={[
+              'flex touch-44 items-center justify-center rounded-capsule px-1 text-subhead',
+              showLabels ? 'text-accent' : 'text-label-secondary',
+            ].join(' ')}
+          >
+            Nomes
+          </button>
           <button
             type="button"
             aria-label="Desfazer"

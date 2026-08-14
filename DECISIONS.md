@@ -21,6 +21,10 @@ intensidade, qual consentimento.
 (art. 5º, II). Mantendo tudo local não existe transferência, não existe
 subprocessador e a superfície de vazamento fica restrita ao próprio tablet.
 
+> **Emenda (D-16).** A captura pelo celular abre uma exceção deliberada e
+> delimitada: a foto passa de um aparelho da clínica para outro, direto, sem
+> tocar em servidor. Leia D-16 antes de tratar esta regra como absoluta.
+
 **Consequências que não podem ser contornadas:**
 - Nenhuma rota em `app/api/` aceita ou devolve bytes de imagem.
 - Não existe bucket de Storage para foto de paciente.
@@ -143,6 +147,88 @@ arquivos custa mais do que rende: um `loader` a manter, um ponto a mais de
 divergência entre `dev` e `build`, e nenhum ganho — o shader não é reaproveitado
 fora do bundle. Em troca, o arquivo aceita comentário de TypeScript, importa
 constantes compartilhadas (`MAX_APPLICATIONS`) e entra na verificação de tipos.
+
+### D-16 — Captura pelo celular por ligação direta, sem servidor no meio
+
+**O problema.** No computador do consultório a câmera é uma webcam de monitor,
+quando existe. Ninguém enquadra um rosto de perto com ela, e a validação de
+qualidade — que é bloqueante (E-04) — reprovaria a foto de qualquer jeito. O
+profissional tem um celular com câmera boa no bolso.
+
+**A solução.** O computador mostra um QR; o celular abre, fotografa e devolve a
+foto por `RTCDataChannel`, cifrada por DTLS. O servidor troca apenas as
+descrições de sessão do WebRTC (SDP) e nunca vê byte de imagem — a seção 9 da
+especificação continua verdadeira: nenhuma rota de API recebe imagem.
+
+**A emenda à regra de ouro.** A foto passa a existir em dois aparelhos da
+clínica em vez de um. O que a regra protege — nenhum servidor, nenhum
+subprocessador, nenhuma cópia fora dos aparelhos da clínica — continua de pé; o
+que muda é a contagem de aparelhos. Fica registrado aqui porque ninguém deve
+descobrir isso lendo o código.
+
+**Sem STUN e sem TURN.** `iceServers: []` deixa só candidatos de host: a ponte
+fecha se, e só se, os dois aparelhos estiverem na mesma rede — o caso real da
+clínica. Um TURN relayaria os bytes por um terceiro; um STUN público entregaria
+os endereços da clínica a alguém de fora. Preferimos falhar na cara, com
+mensagem que diz o que fazer, a funcionar por um caminho que a regra não
+autoriza.
+
+**Autorização por posse.** Quem escaneia o QR não está logado, então a rota
+`/captura/[pairId]` é pública. O que autoriza é o identificador do pareamento:
+128 bits aleatórios, cinco minutos de validade, queimado quando a resposta
+chega. O celular não recebe acesso à tabela `pairings` — fala com duas funções
+`security definer` que só respondem sobre a linha cujo id ele já tem. Política
+aberta na tabela deixaria qualquer anônimo listar todos os pareamentos da
+instalação.
+
+**Limpeza antes do envio.** O celular converte HEIC, reduz para 2048 px e apaga
+o EXIF **antes** de transmitir. Num celular o EXIF traz GPS, e GPS de foto de
+paciente é a coordenada da clínica. A foto não é gravada no celular: existe em
+memória o tempo de atravessar o canal.
+
+**Validação do lado de cá.** A foto que chega do celular entra no mesmo funil de
+qualidade da foto local. Foto que veio de fora é justamente a que mais precisa
+passar por ele.
+
+**Sem trickle ICE.** A negociação é de duas mensagens: oferta e resposta, com os
+candidatos já embutidos. Trickle exigiria canal de sinalização vivo dos dois
+lados e economizaria cerca de um segundo num fluxo em que o profissional está
+andando até o paciente.
+
+### D-17 — Regiões do atlas são pontos, não cápsulas com rótulo
+
+A especificação pede chips sobre cada região detectada. A primeira versão pôs o
+nome da região numa cápsula em cada centróide — e sobre um rosto real, que ocupa
+umas trezentas colunas de pixels na tela, quinze cápsulas cobrem o rosto inteiro.
+O conteúdo é o rosto; qualquer coisa que compita com ele está errada.
+
+O que ficou:
+
+- Cada região vira um **anel** com alvo de 44pt. O nome vive no `aria-label`,
+  aparece no painel quando a aplicação é selecionada, e todos aparecem de uma vez
+  no botão "Nomes" — que é consulta de segundos, não estado de trabalho.
+- Só aparecem as regiões que aceitam a técnica ativa. Desenhar as outras
+  apagadas enchia o rosto de rótulo inútil.
+- O ponto fica no **landmark de ancoragem** da região, não no centróide do
+  polígono. Em região alongada como a linha mandibular, o centro do fecho convexo
+  cai no meio da bochecha — longe da mandíbula e por cima do ponto de outra
+  região.
+
+### D-18 — Precisão de fragmento explícita em todo programa GLSL
+
+Todo `GlProgram.from` leva `preferredFragmentPrecision: 'highp'`.
+
+O Pixi injeta `highp` no vertex e `mediump` no fragmento. Como os nossos
+fragmentos redeclaram uniforms do vertex do filtro (`uInputSize`,
+`uOutputFrame`), o GLSL ES recusa ligar o programa quando as precisões diferem —
+e o Pixi registra o erro no console e segue. O sintoma é tela preta, com
+TypeScript limpo, lint limpo e todos os testes de unidade passando.
+
+Fora isso, meia precisão em coordenada de textura de uma foto de 2048 px produz
+salto visível na amostragem.
+
+A bancada em `/diagnostico/render` e `e2e/render.spec.ts` existem por causa
+desta classe de defeito: ela só aparece num navegador de verdade.
 
 ### D-09 — Modelo e WASM servidos da própria origem
 
@@ -328,6 +414,7 @@ quebra. Dynamic Type no tamanho máximo sem sobreposição nem corte.
 | E-06 | `border-radius` comum no lugar de cantos contínuos (squircle). | CSS não expõe corner smoothing. Raios grandes da escala 2.4 aproximam sem custo de runtime; um path SVG por caixa não se paga. |
 | E-07 | Uma animação de entrada orquestrada (cascata do atlas), onde a HIG pede parcimônia. | É o único momento animado do produto inteiro e comunica um fato: a detecção terminou e estas são as regiões disponíveis. Desligada por `prefers-reduced-motion`. |
 | E-08 | Teto de 32 aplicações por prévia, com aviso na tela ao atingir. | É o tamanho dos arrays de uniform do shader do campo (D-08); GLSL ES 3.00 garante 224 vetores no fragmento e cada aplicação ocupa três. Um limite anunciado é melhor do que uma 33ª aplicação que some sem explicação. |
+| E-09 | O QR é desenhado com preto sobre branco fixos (`--qr-paper`, `--qr-ink`), fora do sistema de tema. | Leitor de código conta com módulo escuro sobre fundo claro, e QR invertido falha em parte dos aparelhos. A tela do simulador é escuro fixo (E-01), então o código ganha uma placa clara. Continuam sendo papéis semânticos em CSS variable — só não acompanham o tema. |
 
 ---
 
@@ -350,6 +437,8 @@ Se não piorou, ele não volta.
 |---|---|---|
 | 2026-08-14 | Documento inicial: D-01 a D-10, sistema de design, E-01 a E-07. | Engenharia |
 | 2026-08-14 | D-08 detalhado com a soma no shader; D-11 a D-14 e E-08 acrescentados durante a implementação do warp. | Engenharia |
+| 2026-08-14 | D-16 e E-09: captura pelo celular por WebRTC. **Emenda à regra de ouro (D-01)** — a foto passa a existir em dois aparelhos da clínica. | Engenharia |
+| 2026-08-14 | D-17 e D-18: regiões viram anéis, e precisão de fragmento explícita nos shaders. Correção de dois defeitos de render que só aparecem em navegador; bancada em `/diagnostico/render`. | Engenharia |
 
 ---
 

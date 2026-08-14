@@ -1,8 +1,10 @@
 'use client'
 
-import { useId, useRef } from 'react'
+import { useCallback, useId, useRef, useSyncExternalStore } from 'react'
 import { Button } from '@/components/ui/Button'
 import type { QualityIssue } from '@/lib/face/quality'
+
+const COARSE_POINTER = '(any-pointer: coarse)'
 
 export type CaptureProblem =
   | { kind: 'message'; message: string }
@@ -10,9 +12,13 @@ export type CaptureProblem =
 
 interface PhotoCaptureProps {
   patientName: string
+  /** Bloqueia as ações: carregando a sessão local ou analisando a foto. */
   busy: boolean
+  /** Só a análise troca o rótulo do botão — carregar não é um estado a anunciar. */
+  analyzing: boolean
   problem: CaptureProblem | null
   onFile: (file: File) => void
+  onUsePhone: () => void
 }
 
 /**
@@ -22,9 +28,34 @@ interface PhotoCaptureProps {
  * frontal na primeira tentativa, em vez de descobrir o ângulo errado depois da
  * detecção. O bloqueio de qualidade vem em seguida (E-04) e diz o que corrigir.
  */
-export function PhotoCapture({ patientName, busy, problem, onFile }: PhotoCaptureProps) {
+export function PhotoCapture({
+  patientName,
+  busy,
+  analyzing,
+  problem,
+  onFile,
+  onUsePhone,
+}: PhotoCaptureProps) {
   const inputRef = useRef<HTMLInputElement>(null)
   const inputId = useId()
+
+  // Aparelho sem nenhum apontador grosso é computador com mouse. Não é detecção
+  // de sistema operacional: o que importa é que ali a câmera, quando existe, é
+  // uma webcam de monitor — e ninguém fotografa um rosto de perto com ela. Nesse
+  // caso o celular vira a ação principal.
+  const subscribe = useCallback((notify: () => void) => {
+    const query = window.matchMedia(COARSE_POINTER)
+    query.addEventListener('change', notify)
+    return () => query.removeEventListener('change', notify)
+  }, [])
+
+  const onDesktop = useSyncExternalStore(
+    subscribe,
+    () => !window.matchMedia(COARSE_POINTER).matches,
+    // No servidor não há apontador para consultar; o padrão é o tablet, que é o
+    // aparelho do produto.
+    () => false,
+  )
 
   return (
     <div className="flex h-full flex-col items-center justify-center gap-3 safe-x safe-b safe-t">
@@ -92,14 +123,32 @@ export function PhotoCapture({ patientName, busy, problem, onFile }: PhotoCaptur
           }}
         />
 
-        <Button
-          variant="primary"
-          disabled={busy}
-          className="w-full"
-          onClick={() => inputRef.current?.click()}
-        >
-          {busy ? 'Analisando' : 'Fotografar'}
-        </Button>
+        <div className="flex flex-col gap-1">
+          <Button
+            variant={onDesktop ? 'secondary' : 'primary'}
+            disabled={busy}
+            className="w-full"
+            onClick={() => inputRef.current?.click()}
+          >
+            {analyzing ? 'Analisando' : 'Fotografar aqui'}
+          </Button>
+
+          <Button
+            variant={onDesktop ? 'primary' : 'secondary'}
+            disabled={busy}
+            className="w-full"
+            onClick={onUsePhone}
+          >
+            Fotografar pelo celular
+          </Button>
+        </div>
+
+        {onDesktop ? (
+          <p className="text-footnote text-label-secondary">
+            Webcam de monitor não enquadra rosto de perto. Pelo celular, a foto vem direto para
+            esta tela.
+          </p>
+        ) : null}
       </div>
     </div>
   )

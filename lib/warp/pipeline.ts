@@ -166,6 +166,8 @@ export class WarpPipeline {
         vertex: defaultFilterVert,
         fragment: WARP_FRAGMENT,
         name: 'previa-warp',
+        // Ver a nota em displacement.ts: sem isto o programa não liga.
+        preferredFragmentPrecision: 'highp',
       }),
       resources: {
         warpUniforms: this.warpUniforms,
@@ -180,6 +182,7 @@ export class WarpPipeline {
         vertex: defaultFilterVert,
         fragment: SMOOTH_FRAGMENT,
         name: 'previa-smooth',
+        preferredFragmentPrecision: 'highp',
       }),
       resources: {
         uField: this.field.texture.source,

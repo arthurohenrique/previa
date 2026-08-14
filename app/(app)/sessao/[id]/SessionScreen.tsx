@@ -5,7 +5,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { getRegion, type RegionId, type Side } from '@/lib/face/atlas'
 import { analyzePhoto, warmupLandmarker } from '@/lib/face/landmarker'
 import type { FaceGeometry } from '@/lib/face/types'
-import { bitmapFromBlob, preparePhoto } from '@/lib/image/prepare'
+import { bitmapFromBlob, preparePhoto, type PreparedPhoto } from '@/lib/image/prepare'
 import {
   getPhoto,
   getSession,
@@ -17,6 +17,7 @@ import {
 import type { Technique } from '@/lib/supabase/types'
 import { resolvePoint, useSessionStore, type SessionApplication } from '@/store/useSessionStore'
 import { PhotoCapture, type CaptureProblem } from './PhotoCapture'
+import { RemoteCaptureSheet } from './RemoteCaptureSheet'
 import { Simulator } from './Simulator'
 import { createSession, syncApplications } from './actions'
 
@@ -74,6 +75,7 @@ export function SessionScreen(props: SessionScreenProps) {
   const [phase, setPhase] = useState<Phase>('loading')
   const [problem, setProblem] = useState<CaptureProblem | null>(null)
   const [photoBlob, setPhotoBlob] = useState<Blob | null>(null)
+  const [remoteOpen, setRemoteOpen] = useState(false)
 
   // A geometria é congelada: detectada uma vez e nunca recalculada durante a
   // interação (D-06). Ela é escrita uma única vez por foto e daí em diante é uma
@@ -149,14 +151,19 @@ export function SessionScreen(props: SessionScreenProps) {
     }
   }, [sessionId, persistedApplications, setGeometry, hydrate])
 
-  const handleFile = useCallback(
-    async (file: File) => {
+  /**
+   * Do JPEG limpo até a sessão pronta.
+   *
+   * O mesmo caminho serve à foto tirada aqui e à que chegou do celular: a
+   * validação de qualidade é do produto, não do aparelho, e uma foto que chegou
+   * de fora é justamente a que mais precisa passar por ela.
+   */
+  const analyzePrepared = useCallback(
+    async (prepared: PreparedPhoto) => {
       setPhase('analyzing')
       setProblem(null)
 
       try {
-        const prepared = await preparePhoto(file)
-
         // Dois bitmaps do mesmo blob: um é transferido para o worker e fechado
         // lá; o outro fica para a textura do Pixi. Transferir e reutilizar o
         // mesmo objeto é o caminho mais curto para um canvas em branco.
@@ -240,6 +247,35 @@ export function SessionScreen(props: SessionScreenProps) {
     [existingSession, patient.id, router, sessionId, setGeometry],
   )
 
+  const handleFile = useCallback(
+    async (file: File) => {
+      setPhase('analyzing')
+      setProblem(null)
+      try {
+        await analyzePrepared(await preparePhoto(file))
+      } catch {
+        setProblem({ kind: 'message', message: 'Não foi possível preparar a foto. Refaça.' })
+        setPhase('capture')
+      }
+    },
+    [analyzePrepared],
+  )
+
+  /**
+   * Foto vinda do celular pelo canal de dados.
+   *
+   * Ela já chega preparada — o celular converteu HEIC, reduziu para 2048 px e
+   * apagou o EXIF antes de enviar, que é onde mora o GPS. Aqui ela entra no
+   * mesmo funil de qualidade da foto local.
+   */
+  const handleRemotePhoto = useCallback(
+    (photo: { blob: Blob; width: number; height: number }) => {
+      setRemoteOpen(false)
+      void analyzePrepared(photo)
+    },
+    [analyzePrepared],
+  )
+
   // Espelho local + metadados. O local é a verdade; o Supabase é a cópia
   // auditável, e nenhum dos dois carrega imagem.
   useEffect(() => {
@@ -309,12 +345,23 @@ export function SessionScreen(props: SessionScreenProps) {
           }}
         />
       ) : (
-        <PhotoCapture
-          patientName={patient.full_name}
-          busy={phase === 'analyzing' || phase === 'loading'}
-          problem={problem}
-          onFile={(file) => void handleFile(file)}
-        />
+        <>
+          <PhotoCapture
+            patientName={patient.full_name}
+            busy={phase === 'analyzing' || phase === 'loading'}
+            analyzing={phase === 'analyzing'}
+            problem={problem}
+            onFile={(file) => void handleFile(file)}
+            onUsePhone={() => setRemoteOpen(true)}
+          />
+          <RemoteCaptureSheet
+            open={remoteOpen}
+            sessionId={sessionId}
+            patientId={patient.id}
+            onClose={() => setRemoteOpen(false)}
+            onPhoto={handleRemotePhoto}
+          />
+        </>
       )}
     </div>
   )

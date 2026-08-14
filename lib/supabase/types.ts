@@ -101,6 +101,23 @@ export type RegionPresetRow = {
   created_at: string
 }
 
+/**
+ * Sinalização WebRTC da captura pelo celular. Guarda descrições de sessão (SDP),
+ * que são texto. Nunca imagem — o transporte da foto é o DataChannel.
+ */
+export type PairingRow = {
+  id: string
+  clinic_id: string
+  created_by: string
+  session_id: string
+  patient_id: string
+  created_at: string
+  expires_at: string
+  offer: string
+  answer: string | null
+  claimed_at: string | null
+}
+
 export type AuditLogRow = {
   id: number
   actor_id: string | null
@@ -174,6 +191,7 @@ export interface Database {
         >
       >
       audit_log: Table<AuditLogRow, WithDefaults<AuditLogRow, 'action' | 'entity' | 'entity_id'>>
+      pairings: Table<PairingRow, WithDefaults<PairingRow, 'session_id' | 'patient_id' | 'offer'>>
     }
     // Sem views. E o vazio precisa ser `Record<never, never>`, não
     // `Record<string, never>`: o postgrest-js resolve as relações com
@@ -183,6 +201,13 @@ export interface Database {
     Functions: {
       current_clinic_id: { Args: Record<string, never>; Returns: string }
       is_clinic_admin: { Args: Record<string, never>; Returns: boolean }
+      // O celular não está autenticado: fala com o banco só por estas duas
+      // funções, que respondem sobre a linha cujo id ele já conhece.
+      pairing_claim: {
+        Args: { p_id: string }
+        Returns: Array<{ patient_name: string; offer: string }>
+      }
+      pairing_answer: { Args: { p_id: string; p_answer: string }; Returns: undefined }
     }
     Enums: {
       app_role: AppRole

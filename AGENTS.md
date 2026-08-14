@@ -25,6 +25,11 @@ Se você se pegar escrevendo `multipart/form-data` com uma foto, `FormData.appen
 de um `Blob` de imagem, upload para Storage, ou uma coluna `text` recebendo
 base64 — pare. Violou a seção 2 da especificação e o teste e2e vai falhar.
 
+Exceção única e registrada: a captura pelo celular (D-16). A foto vai de um
+aparelho da clínica ao outro pelo `RTCDataChannel`, sem tocar em servidor. As
+actions de pareamento movem descrição de sessão do WebRTC — texto — e um teste
+de guarda falha se alguém acrescentar `Blob`, `ArrayBuffer` ou `File` a elas.
+
 ## Comandos
 
 ```bash
@@ -84,6 +89,13 @@ pnpm db:reset         # aplica as migrations do zero
 - A textura da foto é carregada uma vez. Nunca `texture.update()` por frame.
 - `webglcontextlost` / `webglcontextrestored` tratados — o Safari derruba o
   contexto quando a aba vai para o fundo.
+- Todo `GlProgram.from` leva `preferredFragmentPrecision: 'highp'` (D-18). Sem
+  isso o programa não liga e a tela fica preta, com tudo mais limpo.
+- Nada que posiciona por `transform` inline pode carregar a animação da cascata:
+  animação com `fill-mode: both` vence estilo inline na cascata do CSS e apaga a
+  posição. Posição num elemento, animação em outro.
+- Mexeu no caminho de render? Rode `e2e/render.spec.ts` contra
+  `/diagnostico/render`. Nem `tsc` nem `eslint` nem vitest enxergam tela preta.
 
 ## Mapa do repositório
 
@@ -92,7 +104,10 @@ app/(auth)/login            entrada
 app/(app)/pacientes         lista e ficha do paciente
 app/(app)/sessao/[id]       a tela do simulador
 app/(app)/presets           protocolos da clínica
+app/captura/[pairId]        tela do celular na captura remota; rota pública
+app/diagnostico/render      bancada de render, fora de produção
 app/api                     só metadados; nenhuma rota vê imagem
+lib/pairing                 protocolo e ponte WebRTC entre celular e computador
 lib/supabase                clients de browser e de servidor
 lib/db/dexie.ts             fotos e sessões locais
 lib/face                    landmarker, atlas, hit-test, escala, qualidade

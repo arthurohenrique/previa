@@ -102,4 +102,39 @@ describe.skipIf(!configured)('RLS entre clínicas', () => {
     expect(data ?? []).toEqual([])
     if (error) expect(error).not.toBeNull()
   })
+
+  it('o celular não consegue listar pareamentos, só resgatar o que já conhece', async () => {
+    if (!aurora) return
+
+    const sessionId = crypto.randomUUID()
+    const offer = `{"type":"offer","sdp":"${'v=0 o=- 0 0 IN IP4 127.0.0.1 '.repeat(3)}"}`
+
+    const { data: pairing, error } = await aurora
+      .from('pairings')
+      .insert({ session_id: sessionId, patient_id: auroraPatientId, offer })
+      .select('id')
+      .single()
+
+    expect(error).toBeNull()
+    const pairId = pairing?.id as string
+
+    // O celular não faz login. Se a tabela estivesse aberta, qualquer anônimo
+    // listaria todos os pareamentos da instalação — por isso o acesso é só pelas
+    // duas funções, e sobre a linha cujo id ele já tem.
+    const anon = client()
+    const listed = await anon.from('pairings').select('id')
+    expect(listed.data ?? []).toEqual([])
+
+    const claimed = await anon.rpc('pairing_claim', { p_id: pairId })
+    expect(claimed.error).toBeNull()
+    expect(claimed.data?.[0]?.offer).toBe(offer)
+
+    const answer = `{"type":"answer","sdp":"${'v=0 o=- 1 0 IN IP4 127.0.0.1 '.repeat(3)}"}`
+    expect((await anon.rpc('pairing_answer', { p_id: pairId, p_answer: answer })).error).toBeNull()
+
+    // Pareamento completo é pareamento gasto.
+    expect((await anon.rpc('pairing_claim', { p_id: pairId })).error).not.toBeNull()
+
+    await aurora.from('pairings').delete().eq('id', pairId)
+  })
 })

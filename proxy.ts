@@ -8,7 +8,13 @@ import { createServerClient } from '@supabase/ssr'
 // visitante não autenticado para o login. Nenhuma imagem passa por aqui — nem
 // poderia, já que a foto nunca chega ao servidor (D-01).
 
-const PUBLIC_PATHS = ['/login', '/auth']
+// `/captura` é público de propósito: quem escaneia o QR é o celular do
+// profissional, que não está logado. A autorização é a posse do identificador do
+// pareamento — 128 bits aleatórios, cinco minutos de validade.
+//
+// `/diagnostico` é a bancada de render, que não toca em dado de paciente e
+// devolve 404 fora de desenvolvimento.
+const PUBLIC_PATHS = ['/login', '/auth', '/captura', '/diagnostico']
 
 export async function proxy(request: NextRequest) {
   let response = NextResponse.next({ request })

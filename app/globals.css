@@ -31,6 +31,12 @@
   /* Véu atrás da folha modal. Uma camada, curta, sem gradiente. */
   --scrim: rgb(0 0 0 / 0.32);
 
+  /* Papel e tinta do QR. Não acompanham o tema: leitor de código conta com
+     módulo escuro sobre fundo claro, e QR invertido falha em parte dos
+     aparelhos. A tela do simulador é escura, então o QR ganha uma placa. */
+  --qr-paper: rgb(255 255 255);
+  --qr-ink: rgb(0 0 0);
+
   --shadow-1: 0 1px 3px rgb(0 0 0 / 0.1);
   --shadow-2: 0 8px 24px rgb(0 0 0 / 0.18);
 
@@ -129,6 +135,8 @@
   --color-accent-on: var(--accent-on);
   --color-critical: var(--critical);
   --color-scrim: var(--scrim);
+  --color-qr-paper: var(--qr-paper);
+  --color-qr-ink: var(--qr-ink);
 
   --font-sans: var(--font-system);
 

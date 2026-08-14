@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync, statSync } from 'node:fs'
+﻿import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { extname, join, relative, sep } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
@@ -151,6 +151,39 @@ describe('a foto nunca sai do dispositivo', () => {
     }
   })
 
+  it('a captura pelo celular não manda imagem para o servidor', () => {
+    // A foto atravessa pelo DataChannel do WebRTC, direto de um aparelho ao
+    // outro. As actions de pareamento movem descrição de sessão — texto — e o
+    // dia em que alguém acrescentar um Blob a elas, este teste avisa.
+    const signalling = [
+      join(ROOT, 'app', 'captura'),
+      join(ROOT, 'app', '(app)', 'sessao', '[id]', 'pairing-actions.ts'),
+    ]
+
+    const offenders = signalling
+      .flatMap((entry) =>
+        entry.endsWith('.ts') ? [entry] : walk(entry, ['.ts', '.tsx']),
+      )
+      .filter((path) => path.endsWith('actions.ts'))
+      .map((path) => ({
+        path: relative(ROOT, path).split(sep).join('/'),
+        text: stripComments(readFileSync(path, 'utf8')),
+      }))
+      .filter((file) => /\bBlob\b|\bArrayBuffer\b|\bFile\b|base64/.test(file.text))
+
+    expect(offenders.map((file) => file.path)).toEqual([])
+  })
+
+  it('o pareamento não abre STUN nem TURN', () => {
+    // TURN relayaria os bytes por um terceiro; STUN público entregaria os
+    // endereços da clínica a alguém de fora. Preferimos falhar na cara.
+    const webrtc = stripComments(
+      readFileSync(join(ROOT, 'lib', 'pairing', 'webrtc.ts'), 'utf8'),
+    )
+    expect(webrtc).toContain('iceServers: []')
+    expect(webrtc).not.toMatch(/stun:|turn:|turns:/)
+  })
+
   it('não declara coluna de imagem no banco', () => {
     const forbidden = /\b(bytea|storage\.buckets|storage\.objects)\b/i
     const offenders = migrationFiles().filter((file) => forbidden.test(file.text))
@@ -173,6 +206,7 @@ describe('RLS em todas as tabelas', () => {
         'audit_log',
         'clinics',
         'consents',
+        'pairings',
         'patients',
         'profiles',
         'region_presets',
@@ -210,6 +244,41 @@ describe('RLS em todas as tabelas', () => {
         `política ${name} de ${table} não está escopada`,
       ).toBe(true)
     }
+  })
+})
+
+
+describe('shaders', () => {
+  const programs = walk(join(ROOT, 'lib', 'warp'), ['.ts']).map((path) => ({
+    path: relative(ROOT, path).split(sep).join('/'),
+    text: stripComments(readFileSync(path, 'utf8')),
+  }))
+
+  it('todo programa GLSL pede precisão alta no fragmento', () => {
+    // O Pixi injeta `highp` no vertex e `mediump` no fragmento. Como os nossos
+    // fragmentos redeclaram uniforms do vertex (uInputSize, uOutputFrame), o
+    // GLSL ES recusa ligar o programa quando as precisões diferem — e o
+    // resultado é tela preta, sem erro de tipo, sem erro de lint e com todos os
+    // testes de unidade passando. Este é o teste barato que sobrou.
+    const offenders = programs
+      .flatMap((file) =>
+        [...file.text.matchAll(/GlProgram\.from\(\{([\s\S]*?)\}\)/g)].map((match) => ({
+          path: file.path,
+          body: match[1] ?? '',
+        })),
+      )
+      .filter((program) => !/preferredFragmentPrecision:\s*'highp'/.test(program.body))
+
+    expect(offenders.map((program) => program.path)).toEqual([])
+  })
+
+  it('há pelo menos um programa declarado', () => {
+    // Sem isto o teste acima passaria vazio depois de uma refatoração.
+    const count = programs.reduce(
+      (total, file) => total + [...file.text.matchAll(/GlProgram\.from\(/g)].length,
+      0,
+    )
+    expect(count).toBeGreaterThanOrEqual(3)
   })
 })
 
