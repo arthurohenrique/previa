@@ -94,8 +94,14 @@ pnpm db:reset         # aplica as migrations do zero
 - Nada que posiciona por `transform` inline pode carregar a animação da cascata:
   animação com `fill-mode: both` vence estilo inline na cascata do CSS e apaga a
   posição. Posição num elemento, animação em outro.
+- Todo filtro que desenha a foto leva `resolution: 'inherit'` (D-19). O padrão do
+  Pixi é 1, e o canvas roda em `min(devicePixelRatio, 2)`: sem herdar, a foto
+  simulada sai mais macia que a original.
 - Mexeu no caminho de render? Rode `e2e/render.spec.ts` contra
   `/diagnostico/render`. Nem `tsc` nem `eslint` nem vitest enxergam tela preta.
+- Mexeu no campo, nos clamps ou nos shaders? Rode `e2e/warp.spec.ts` contra
+  `/diagnostico/warp`. Ele mede pixel: se o deslocamento passar do teto da
+  região, ou vazar para fora dela, o teste acusa. Já pegou duas violações.
 
 ## Mapa do repositório
 

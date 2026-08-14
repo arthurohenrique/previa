@@ -175,6 +175,12 @@ export class WarpPipeline {
       },
       padding: 0,
       antialias: 'off',
+      // O padrão do Pixi é 1, e o canvas roda em `min(devicePixelRatio, 2)`.
+      // Sem herdar, o passe inteiro é renderizado a metade da resolução do
+      // aparelho e reescalado: a foto simulada sai mais macia que a original, o
+      // "depois" parece com menos textura que o "antes", e o profissional julga
+      // pele contra um borrão. Medido em e2e/warp.spec.ts.
+      resolution: 'inherit',
     })
 
     this.smoothFilter = new Filter({
@@ -191,6 +197,10 @@ export class WarpPipeline {
       },
       padding: 0,
       antialias: 'off',
+      // Ver a nota no filtro de warp. Aqui o efeito é ainda pior: como este
+      // passe só entra quando existe toxina, ligar a toxina reamostrava a foto
+      // inteira — inclusive regiões sem tratamento nenhum.
+      resolution: 'inherit',
     })
     this.smoothFilter.enabled = false
 
@@ -384,6 +394,21 @@ export class WarpPipeline {
    * Extrai o resultado como bitmap, para o antes/depois e para a ficha em PDF.
    * O canvas é lido no cliente e não vai a servidor nenhum (D-01).
    */
+  /**
+   * Pixels do resultado, sem passar por codificação com perda.
+   *
+   * `snapshot()` devolve JPEG, e JPEG introduz ruído da ordem de alguns níveis
+   * por canal — o suficiente para uma comparação de "mudou ou não mudou" virar
+   * chute. Aqui a leitura é direta do framebuffer, e é sobre ela que
+   * `e2e/warp.spec.ts` prova que a simulação realmente altera a foto.
+   */
+  readPixels(): { pixels: Uint8ClampedArray; width: number; height: number } {
+    const app = this.app
+    if (!app) throw new Error('Pipeline não inicializado.')
+    this.renderNow()
+    return app.renderer.extract.pixels({ target: this.stage ?? app.stage })
+  }
+
   async snapshot(): Promise<Blob> {
     const app = this.app
     if (!app) throw new Error('Pipeline não inicializado.')

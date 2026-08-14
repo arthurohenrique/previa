@@ -104,15 +104,23 @@ void main() {
         float mask = maskAt(app2.x, uv);
         if (mask <= 0.0) continue;
 
-        // A direção é calculada num espaço com pixels quadrados, senão o empurrão
-        // sai achatado em foto que não é 1:1.
-        vec2 squared = vec2(delta.x * uAspect, delta.y);
+        // A direção é calculada num espaço de pixels quadrados, senão o empurrão
+        // sai achatado em foto que não é 1:1. uAspect é largura/altura, então
+        // (dx, dy/aspect) é proporcional ao delta em pixels.
+        vec2 squared = vec2(delta.x, delta.y / uAspect);
         float squaredLength = length(squared);
         vec2 radial = squaredLength > 1e-6 ? squared / squaredLength : vec2(0.0);
         vec2 direction = mix(radial, app1.yz, step(0.5, app1.w));
 
+        // E a volta para UV é (dx, dy*aspect): um deslocamento de k pixels vale
+        // k/largura em u e k/altura em v, e altura = largura/aspect.
+        //
+        // Inverter estes dois fatores custou caro uma vez: o deslocamento saía
+        // 1/aspect maior que o teto da região — 33% acima numa foto 3:4 — e
+        // ainda esticado na horizontal. O teto por região é requisito de
+        // segurança (D-05), não sugestão. Medido em e2e/warp.spec.ts.
         float magnitude = app1.x * bulgeProfile(t) * mask;
-        displacement += vec2(direction.x / uAspect, direction.y) * magnitude;
+        displacement += vec2(direction.x, direction.y * uAspect) * magnitude;
 
         smoothing += app2.y * smoothProfile(t) * mask;
     }

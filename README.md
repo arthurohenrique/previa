@@ -95,6 +95,41 @@ A justificativa está em D-16 no [`DECISIONS.md`](./DECISIONS.md).
 | `pnpm db:reset` | Recria o banco local a partir das migrations |
 | `node scripts/generate-icons.mjs` | Regera os ícones da PWA |
 
+### Bancada do warp
+
+`/diagnostico/warp` monta o pipeline de deformação isolado, com foto e geometria
+determinísticas, e expõe a leitura dos pixels do resultado. Só existe fora de
+produção.
+
+Ela responde à única pergunta que importa neste produto: **aplicar um
+procedimento muda mesmo a foto, no lugar certo e na medida certa?** Isso não é
+verificável por teste de unidade — o efeito nasce num shader. `e2e/warp.spec.ts`
+mede pixel e afirma:
+
+- sem aplicação, o quadro é idêntico a si mesmo;
+- intensidade zero não muda nada, e mais intensidade muda mais;
+- a mudança fica dentro do polígono da região;
+- remover a aplicação devolve a foto original, pixel por pixel;
+- o tecido se desloca de verdade, medido pelo desvio de uma grade de referência,
+  e **dentro do teto da região**.
+
+A foto de teste é uma grade fina: um deslocamento de poucos pixels move linhas de
+alto contraste e vira número, coisa que uma pele lisa sintética esconderia.
+
+Deslocamento máximo medido, com DIP de 63 mm:
+
+| técnica | intensidade 1 | teto |
+|---|---|---|
+| Preenchedor (malar) | 0,033 DIP · 2,1 mm | 0,034 |
+| Bioestimulador (malar) | 0,018 DIP · 1,1 mm | 0,020 |
+| Rinomodelação (dorso) | 0,026 DIP · 1,6 mm | 0,031 |
+| Toxina (malar) | 0,006 DIP · 0,4 mm | 0,006 |
+
+```bash
+pnpm dev
+E2E_BASE_URL=http://localhost:3000 pnpm exec playwright test warp
+```
+
 ### Bancada de render
 
 `/diagnostico/render` monta o simulador com foto e geometria sintéticas, sem

@@ -94,6 +94,15 @@ mesmo campo em vez de precisar de um segundo.
 escala de codificação acompanha o pior caso do conjunto — fixa, desperdiçaria
 bits numa sessão leve e cortaria numa carregada.
 
+**Proporção.** A direção do empurrão é calculada num espaço de pixels quadrados
+e devolvida a UV com o fator inverso: `uAspect` é largura/altura, então o delta
+em pixels é proporcional a `(dx, dy/aspect)` e a volta é `(dx, dy*aspect)`.
+
+Inverter esses dois fatores custou caro: o deslocamento saía `1/aspect` maior
+que o teto da região — 32% acima numa foto 3:4 — e ainda esticado na horizontal.
+O teto por região é requisito de segurança (D-05), não sugestão, e a violação
+era invisível para tudo que não medisse pixel. Hoje `e2e/warp.spec.ts` mede.
+
 ### D-11 — Máscara de região analítica, quatro por textura
 
 Cada instância de região vira um canal de uma textura RGBA em 1/4 da resolução:
@@ -229,6 +238,25 @@ salto visível na amostragem.
 
 A bancada em `/diagnostico/render` e `e2e/render.spec.ts` existem por causa
 desta classe de defeito: ela só aparece num navegador de verdade.
+
+### D-19 — Os filtros que desenham a foto herdam a resolução do canvas
+
+`Filter.defaultOptions.resolution` do Pixi é **1**, e o canvas roda em
+`min(devicePixelRatio, 2)`. Um filtro que não pede `resolution: 'inherit'`
+renderiza a metade da resolução do aparelho e é reescalado na composição.
+
+O efeito era duplo e nenhum dos dois aparecia em teste de tipo ou de unidade:
+
+- a foto simulada saía mais macia que a original, e o profissional julgava
+  textura de pele contra um borrão;
+- como o passe de suavização só entra quando existe toxina, aplicar a primeira
+  toxina reamostrava a foto **inteira** — três quartos dos pixels alterados
+  caíam fora da região tratada.
+
+O filtro do campo continua em resolução própria: ele desenha num `RenderTexture`
+de tamanho fixo, e 1/4 da foto é a escolha deliberada de D-08.
+
+`e2e/warp.spec.ts` mede, e `tests/guardrails.test.ts` exige os dois `'inherit'`.
 
 ### D-09 — Modelo e WASM servidos da própria origem
 
@@ -439,6 +467,7 @@ Se não piorou, ele não volta.
 | 2026-08-14 | D-08 detalhado com a soma no shader; D-11 a D-14 e E-08 acrescentados durante a implementação do warp. | Engenharia |
 | 2026-08-14 | D-16 e E-09: captura pelo celular por WebRTC. **Emenda à regra de ouro (D-01)** — a foto passa a existir em dois aparelhos da clínica. | Engenharia |
 | 2026-08-14 | D-17 e D-18: regiões viram anéis, e precisão de fragmento explícita nos shaders. Correção de dois defeitos de render que só aparecem em navegador; bancada em `/diagnostico/render`. | Engenharia |
+| 2026-08-14 | D-19 e a nota de proporção em D-08: dois defeitos achados medindo pixel. O deslocamento passava 32% do teto da região, e os filtros rodavam a metade da resolução do aparelho. Bancada em `/diagnostico/warp` e `e2e/warp.spec.ts`. | Engenharia |
 
 ---
 

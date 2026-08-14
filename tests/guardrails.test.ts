@@ -272,6 +272,18 @@ describe('shaders', () => {
     expect(offenders.map((program) => program.path)).toEqual([])
   })
 
+  it('os filtros que desenham a foto herdam a resolução do canvas', () => {
+    // O padrão do Pixi é `resolution: 1`, e o canvas roda em
+    // `min(devicePixelRatio, 2)`. Sem herdar, o passe é renderizado a metade da
+    // resolução do aparelho e reescalado: a foto simulada sai mais macia que a
+    // original. Medido e corrigido; este teste é o que impede a volta.
+    const pipeline = stripComments(
+      readFileSync(join(ROOT, 'lib', 'warp', 'pipeline.ts'), 'utf8'),
+    )
+    const inherits = [...pipeline.matchAll(/resolution:\s*'inherit'/g)]
+    expect(inherits.length, 'warp e suavização precisam herdar a resolução').toBe(2)
+  })
+
   it('há pelo menos um programa declarado', () => {
     // Sem isto o teste acima passaria vazio depois de uma refatoração.
     const count = programs.reduce(
