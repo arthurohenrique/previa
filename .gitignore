@@ -1,29 +1,13 @@
 node_modules/
 .next/
-.next-profiles/
 out/
 build/
 dist/
-
-# artefatos de teste
-coverage/
-test-results/
-playwright-report/
-blob-report/
-.playwright/
 
 # ambiente — nunca commitar chaves
 .env
 .env.local
 .env*.local
-
-# supabase local
-supabase/.branches
-supabase/.temp
-.supabase/
-
-# runtime WASM copiado do node_modules no postinstall
-public/mediapipe/
 
 # sistema
 .DS_Store
