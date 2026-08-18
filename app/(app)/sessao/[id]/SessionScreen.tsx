@@ -5,7 +5,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { getRegion, type RegionId, type Side } from '@/lib/face/atlas'
 import { analyzePhoto, warmupLandmarker } from '@/lib/face/landmarker'
 import type { FaceGeometry } from '@/lib/face/types'
-import { bitmapFromBlob, preparePhoto, type PreparedPhoto } from '@/lib/image/prepare'
+import { preparePhoto, type PreparedPhoto } from '@/lib/image/prepare'
 import {
   getPhoto,
   getSession,
@@ -164,11 +164,7 @@ export function SessionScreen(props: SessionScreenProps) {
       setProblem(null)
 
       try {
-        // Dois bitmaps do mesmo blob: um é transferido para o worker e fechado
-        // lá; o outro fica para a textura do Pixi. Transferir e reutilizar o
-        // mesmo objeto é o caminho mais curto para um canvas em branco.
-        const forAnalysis = await bitmapFromBlob(prepared.blob)
-        const result = await analyzePhoto(forAnalysis)
+        const result = await analyzePhoto(prepared.blob)
 
         if (!result.ok) {
           setProblem(

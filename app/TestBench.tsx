@@ -15,7 +15,8 @@ import {
 import { getRegion, type RegionId, type Side } from '@/lib/face/atlas'
 import { analyzePhoto, warmupLandmarker } from '@/lib/face/landmarker'
 import type { FaceGeometry } from '@/lib/face/types'
-import { bitmapFromBlob, preparePhoto, type PreparedPhoto } from '@/lib/image/prepare'
+import { preparePhoto, type PreparedPhoto } from '@/lib/image/prepare'
+import type { WarpPipeline } from '@/lib/warp/pipeline'
 import { resolvePoint, useSessionStore, type SessionApplication } from '@/store/useSessionStore'
 
 /**
@@ -28,6 +29,17 @@ const SESSAO = '00000000-0000-4000-8000-000000000001'
 const PACIENTE = '00000000-0000-4000-8000-0000000000ff'
 
 type Phase = 'loading' | 'capture' | 'analyzing' | 'ready'
+
+declare global {
+  interface Window {
+    /** Só em desenvolvimento: leitura de pixels para diagnóstico e e2e. */
+    __previaTeste?: {
+      readPixels: () => { pixels: Uint8ClampedArray; width: number; height: number }
+      geometry: FaceGeometry
+      instances: () => Array<{ key: string; core: { x: number; y: number }; inscribedU: number }>
+    }
+  }
+}
 
 /** Reconstrói o lado a partir do landmark âncora guardado. */
 function sideFor(regionId: RegionId, anchorLandmark: number): Side {
@@ -125,10 +137,7 @@ export function TestBench() {
       setProblem(null)
 
       try {
-        // Dois bitmaps do mesmo blob: um é transferido para o worker e fechado
-        // lá; o outro fica para a textura do Pixi.
-        const forAnalysis = await bitmapFromBlob(prepared.blob)
-        const result = await analyzePhoto(forAnalysis)
+        const result = await analyzePhoto(prepared.blob)
 
         if (!result.ok) {
           setProblem({
@@ -138,7 +147,9 @@ export function TestBench() {
                 ? 'Nenhum rosto na foto. Enquadre o rosto e refaça.'
                 : result.failure.kind === 'multiple_faces'
                   ? 'Mais de um rosto na foto. Deixe só o paciente no enquadramento.'
-                  : 'A detecção falhou. Refaça a foto.',
+                  : // O motivo de verdade, não um genérico: "a detecção falhou"
+                    // esconde a causa exatamente de quem pode consertá-la.
+                    `A detecção falhou: ${result.failure.message}`,
           })
           setPhase('capture')
           return
@@ -152,25 +163,32 @@ export function TestBench() {
 
         const localImageRef = crypto.randomUUID()
 
-        await putPhoto({
-          id: localImageRef,
-          sessionId: SESSAO,
-          blob: prepared.blob,
-          width: prepared.width,
-          height: prepared.height,
-          createdAt: Date.now(),
-        })
-        await putSession({
-          id: SESSAO,
-          patientId: PACIENTE,
-          localImageRef,
-          geometry: result.geometry,
-          createdAt: Date.now(),
-          syncedAt: null,
-        })
-
-        // Foto nova: marcação feita sobre outra foto não vale mais.
-        await replaceApplications(SESSAO, [])
+        // A persistência é conveniência — recarregar devolve o trabalho — e
+        // conveniência não derruba a sessão: há WebKits (navegação privada)
+        // em que o IndexedDB recusa gravação, e a prévia funciona igual, só
+        // não sobrevive ao reload.
+        try {
+          await putPhoto({
+            id: localImageRef,
+            sessionId: SESSAO,
+            blob: prepared.blob,
+            width: prepared.width,
+            height: prepared.height,
+            createdAt: Date.now(),
+          })
+          await putSession({
+            id: SESSAO,
+            patientId: PACIENTE,
+            localImageRef,
+            geometry: result.geometry,
+            createdAt: Date.now(),
+            syncedAt: null,
+          })
+          // Foto nova: marcação feita sobre outra foto não vale mais.
+          await replaceApplications(SESSAO, [])
+        } catch {
+          // Sem armazenamento local. A sessão segue em memória.
+        }
         reset()
 
         setLocalGeometry(result.geometry)
@@ -252,6 +270,28 @@ export function TestBench() {
             setPhotoBlob(null)
             setPhase('capture')
           }}
+          onPipeline={
+            process.env.NODE_ENV !== 'production'
+              ? (pipeline: WarpPipeline | null) => {
+                  // Espelha a bancada de /diagnostico/interface, mas sobre a
+                  // foto real: é o que permite medir a simulação de verdade.
+                  if (!pipeline || !geometry) {
+                    delete window.__previaTeste
+                    return
+                  }
+                  window.__previaTeste = {
+                    readPixels: () => pipeline.readPixels(),
+                    geometry,
+                    instances: () =>
+                      useSessionStore.getState().regionInstances.map((instance) => ({
+                        key: instance.key,
+                        core: instance.core,
+                        inscribedU: instance.inscribedU,
+                      })),
+                  }
+                }
+              : undefined
+          }
         />
       ) : (
         <PhotoCapture

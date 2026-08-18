@@ -26,6 +26,35 @@ export interface LocalPhoto {
   createdAt: number
 }
 
+/**
+ * Como a foto é gravada de verdade: bytes + tipo, não Blob.
+ *
+ * O WebKit tem modos — navegação privada, o build headless — em que o IndexedDB
+ * aceita ArrayBuffer mas recusa Blob ("Error preparing Blob/File data to be
+ * stored"). Bytes gravam em todo lugar, e o Blob é reconstruído na leitura, com
+ * o mesmo tipo. O resto do app continua vendo `LocalPhoto` com Blob.
+ */
+interface StoredPhoto {
+  id: string
+  sessionId: string
+  bytes: ArrayBuffer
+  type: string
+  /** Linhas gravadas antes da troca para bytes ainda têm o Blob. */
+  blob?: Blob
+  width: number
+  height: number
+  createdAt: number
+}
+
+/** Reconstrói o Blob de uma linha, seja ela do formato novo ou do antigo. */
+function toLocalPhoto(stored: StoredPhoto): LocalPhoto {
+  const { bytes, type, blob, ...rest } = stored
+  return {
+    ...rest,
+    blob: blob instanceof Blob ? blob : new Blob([bytes], { type: type || 'image/jpeg' }),
+  }
+}
+
 export interface LocalSession {
   id: string
   patientId: string
@@ -57,7 +86,7 @@ export interface LocalApplication {
 }
 
 class PreviaDatabase extends Dexie {
-  photos!: EntityTable<LocalPhoto, 'id'>
+  photos!: EntityTable<StoredPhoto, 'id'>
   sessions!: EntityTable<LocalSession, 'id'>
   applications!: EntityTable<LocalApplication, 'id'>
 
@@ -83,11 +112,13 @@ export function db(): PreviaDatabase {
 // ---------------------------------------------------------------------------
 
 export async function putPhoto(photo: LocalPhoto): Promise<void> {
-  await db().photos.put(photo)
+  const { blob, ...rest } = photo
+  await db().photos.put({ ...rest, bytes: await blob.arrayBuffer(), type: blob.type })
 }
 
 export async function getPhoto(id: string): Promise<LocalPhoto | undefined> {
-  return db().photos.get(id)
+  const stored = await db().photos.get(id)
+  return stored ? toLocalPhoto(stored) : undefined
 }
 
 export async function getSession(id: string): Promise<LocalSession | undefined> {
@@ -142,5 +173,6 @@ export async function purgeSession(sessionId: string): Promise<void> {
 /** Fotos mais antigas que `days` dias. Base da limpeza periódica do tablet. */
 export async function listStalePhotos(days: number): Promise<LocalPhoto[]> {
   const cutoff = Date.now() - days * 24 * 60 * 60 * 1000
-  return db().photos.where('createdAt').below(cutoff).toArray()
+  const stale = await db().photos.where('createdAt').below(cutoff).toArray()
+  return stale.map(toLocalPhoto)
 }

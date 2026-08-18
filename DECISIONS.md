@@ -258,6 +258,42 @@ de tamanho fixo, e 1/4 da foto é a escolha deliberada de D-08.
 
 `e2e/warp.spec.ts` mede, e `tests/guardrails.test.ts` exige os dois `'inherit'`.
 
+### D-23 — A detecção sobrevive ao WebKit
+
+Testada com uma foto de rosto de verdade, a detecção falhava em **todo**
+Safari — o navegador do iPad, o aparelho para o qual o produto existe. Três
+defeitos independentes, um atrás do outro:
+
+**O runtime do MediaPipe pedia `document` dentro do worker.** O teste interno
+de `OffscreenCanvas` dele reprova no WebKit e cai em `document.createElement` —
+que não existe em worker. Correção dupla: o canvas vai explícito na criação
+(`canvas: new OffscreenCanvas(1, 1)` quando o ambiente tem), e o `detect()` que
+quebra em GPU refaz uma vez em CPU — criar em GPU pode funcionar e só a
+primeira foto quebrar, então o fallback da criação nunca dispararia.
+
+**Worker sem canvas nenhum.** Há WebKits — o do Playwright hoje, Safaris mais
+velhos — em que worker não tem `OffscreenCanvas` nem `document`. O núcleo da
+análise saiu do worker para `lib/face/analysis.ts`, compartilhado, e
+`analyzePhoto` ganhou plano B: se o worker devolve falha de engine, a mesma
+análise roda na main thread, que sempre tem canvas. Custa alguns quadros uma
+vez por foto (D-06 intacto). Por isso a API recebe o `Blob`, não um bitmap:
+cada tentativa consome o seu, e bitmap transferido para worker não volta.
+
+**IndexedDB que recusa Blob.** Navegação privada do WebKit (e o build headless)
+grava `ArrayBuffer` mas recusa `Blob`. A foto agora é gravada como bytes + tipo
+e o Blob é reconstruído na leitura; linhas antigas com Blob continuam legíveis.
+E persistir deixou de ser fatal: sem armazenamento, a sessão segue em memória —
+só não sobrevive ao reload.
+
+De quebra, a tela de teste parou de esconder o motivo: "a detecção falhou"
+virou "a detecção falhou: <causa>". O genérico escondia a causa exatamente de
+quem podia consertá-la.
+
+Verificado com foto real nos dois motores (WebKit e Chromium): detecção,
+toque alterando pixels, e sessão restaurada após reload. O realce especular do
+preenchedor foi medido na foto real: +4,2% de brilho no núcleo da região, dentro
+da faixa de 3–8% da especificação.
+
 ### D-22 — A aplicação nasce no núcleo da região, e a intensidade é linear
 
 O simulador não simulava. Tocar numa região punha o marcador na tela, abria o
@@ -558,6 +594,7 @@ Se não piorou, ele não volta.
 | 2026-08-14 | D-08 detalhado com a soma no shader; D-11 a D-14 e E-08 acrescentados durante a implementação do warp. | Engenharia |
 | 2026-08-14 | D-16 e E-09: captura pelo celular por WebRTC. **Emenda à regra de ouro (D-01)** — a foto passa a existir em dois aparelhos da clínica. | Engenharia |
 | 2026-08-14 | D-17 e D-18: regiões viram anéis, e precisão de fragmento explícita nos shaders. Correção de dois defeitos de render que só aparecem em navegador; bancada em `/diagnostico/render`. | Engenharia |
+| 2026-08-18 | D-23: a detecção falhava em todo Safari (runtime pedia `document` no worker). Canvas explícito, retry em CPU, fallback de main thread e foto gravada como bytes. Verificado com foto real nos dois motores. | Engenharia |
 | 2026-08-18 | D-22: a simulação não se via. Aplicação passa a nascer no núcleo da região, feather limitado pelo raio inscrito, intensidade linear. Medido em `e2e/simulacao.spec.ts`. | Engenharia |
 | 2026-08-18 | D-21: o painel de ajuste sai de cima da foto. Palco e controles viram irmãos num flex, com altura reservada para não reescalar a foto ao selecionar. Bancada em `/diagnostico/interface`. | Engenharia |
 | 2026-08-18 | D-20: em teste, a raiz vira a tela de captura e simulação e o `proxy.ts` para de redirecionar para o login. Nada de RLS mudou. | Engenharia |
