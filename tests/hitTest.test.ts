@@ -41,6 +41,8 @@ function instance(key: string, polygon: Array<{ x: number; y: number }>): Region
     side: 'center',
     polygon,
     centroid,
+    core: centroid,
+    inscribedU: 0.05,
     region: {
       id: 'chin',
       label: key,
@@ -153,7 +155,7 @@ describe('atlas real', () => {
       z: 0,
     }))
 
-    const instances = buildRegionInstances(landmarks)
+    const instances = buildRegionInstances(landmarks, 0.75)
     expect(hitTest({ x: 0.5, y: 0.5 }, instances)).not.toBeNull()
   })
 })

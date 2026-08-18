@@ -225,18 +225,27 @@ pnpm dev                                       # num terminal
 E2E_BASE_URL=http://localhost:3000 pnpm exec playwright test render
 ```
 
-### Bancada de layout
+### Bancada do simulador
 
-`/diagnostico/interface` monta o simulador de verdade com foto e geometria
-sintéticas, para medir uma coisa só: nenhum controle pode ficar por cima da foto.
-`e2e/interface-layout.spec.ts` mede nas duas orientações do iPad — interseção com
-o palco, tamanho do palco antes e depois de selecionar, e alvo de 44 pt em tudo
-que é tocável na barra.
+`/diagnostico/interface` monta o simulador de verdade — mesmo store, mesmo
+pipeline, mesma barra — com foto e geometria sintéticas. Ela responde às duas
+perguntas que nada mais responde:
+
+- **tocar numa região muda mesmo os pixels?** `e2e/simulacao.spec.ts` mede
+  deslocamento contra uma grade de referência: no padrão, perto de metade do teto
+  da região; no máximo, o teto inteiro e nem um pixel além dele.
+- **algum controle cobre a foto?** `e2e/interface-layout.spec.ts`.
 
 ```bash
 pnpm dev
-E2E_BASE_URL=http://localhost:3000 pnpm exec playwright test interface-layout
+E2E_BASE_URL=http://localhost:3000 pnpm exec playwright test simulacao interface-layout
 ```
+
+A diferença para `/diagnostico/warp` é o caminho: lá o pipeline é alimentado à
+mão, aqui ele é alimentado pelo atlas, pelo store e pelo toque. O defeito que
+deixou a simulação invisível estava exatamente nesse trecho, e a bancada do warp
+passava com ele presente (D-22).
+
 
 ### Testes que precisam de ambiente
 

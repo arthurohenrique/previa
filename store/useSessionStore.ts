@@ -84,7 +84,13 @@ export const useSessionStore = create<SessionState>()(
       notice: null,
 
       setGeometry(geometry) {
-        set({ geometry, regionInstances: buildRegionInstances(geometry.landmarks) })
+        set({
+          geometry,
+          regionInstances: buildRegionInstances(
+            geometry.landmarks,
+            geometry.width / geometry.height,
+          ),
+        })
       },
 
       setActiveTechnique(technique) {

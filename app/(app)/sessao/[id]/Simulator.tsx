@@ -4,11 +4,12 @@ import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { IconCompare, IconRedo, IconUndo } from '@/components/icons'
 import { Button } from '@/components/ui/Button'
-import { anchorIndexFor, type RegionInstance } from '@/lib/face/atlas'
+import type { RegionInstance } from '@/lib/face/atlas'
 import { clientPointToImage, hitTest, imagePointToClient } from '@/lib/face/hitTest'
 import type { FaceGeometry, Point2 } from '@/lib/face/types'
 import { buildFicha, deliverFicha } from '@/lib/export/ficha'
 import { bitmapFromBlob } from '@/lib/image/prepare'
+import { defaultRadiusIpd } from '@/lib/warp/clamps'
 import { WarpPipeline } from '@/lib/warp/pipeline'
 import type { ResolvedApplication } from '@/lib/warp/types'
 import type { Technique } from '@/lib/supabase/types'
@@ -37,8 +38,15 @@ const TECHNIQUE_ORDER: readonly Technique[] = [
   'rhinomodeling',
 ]
 
-const DEFAULT_INTENSITY = 0.45
-const DEFAULT_RADIUS_IPD = 0.16
+/**
+ * Intensidade de uma aplicação nova.
+ *
+ * Metade do teto da região — e o teto é o limite clínico, não o limite do
+ * controle. Uma aplicação nova precisa ser visível no instante em que nasce: se
+ * o padrão for imperceptível, o profissional conclui que o produto não funciona,
+ * e é exatamente o que aconteceu com o padrão anterior.
+ */
+const DEFAULT_INTENSITY = 0.5
 
 interface SimulatorProps {
   photoBlob: Blob
@@ -58,6 +66,16 @@ interface SimulatorProps {
     council_number: string | null
   } | null
   presets?: PresetRow[]
+  /**
+   * Acesso ao pipeline recém-montado, e `null` quando ele morre.
+   *
+   * Existe para a bancada de diagnóstico ler os pixels do resultado. Medir a
+   * simulação de fora é impossível: o canvas é WebGL sem `preserveDrawingBuffer`,
+   * então captura de tela devolve preto, e a única leitura confiável é o
+   * `extract` do Pixi — que precisa da instância. A aplicação não passa esta
+   * prop.
+   */
+  onPipeline?: (pipeline: WarpPipeline | null) => void
 }
 
 interface Size {
@@ -73,11 +91,16 @@ export function Simulator({
   patientName,
   professional = null,
   presets = [],
+  onPipeline,
 }: SimulatorProps) {
   const stageRef = useRef<HTMLDivElement>(null)
   const overlayRef = useRef<HTMLDivElement>(null)
   const pipelineRef = useRef<WarpPipeline | null>(null)
   const generationRef = useRef(0)
+
+  // Num ref, não nas dependências: uma função inline vinda da bancada
+  // remontaria o pipeline a cada render.
+  const onPipelineRef = useRef(onPipeline)
 
   const applications = useSessionStore((state) => state.applications)
   const regionInstances = useSessionStore((state) => state.regionInstances)
@@ -94,6 +117,10 @@ export function Simulator({
   const clearNotice = useSessionStore((state) => state.clearNotice)
 
   const { undo, redo, canUndo, canRedo } = useTemporalSession()
+
+  useEffect(() => {
+    onPipelineRef.current = onPipeline
+  }, [onPipeline])
 
   // Tamanho do palco em CSS pixels. Os chips e os marcadores são DOM, então
   // precisam do mesmo retângulo que o `object-fit: contain` do canvas usa.
@@ -155,6 +182,7 @@ export function Simulator({
     const bounds = stage.getBoundingClientRect()
     setStageSize({ width: bounds.width, height: bounds.height })
     setReady(true)
+    onPipelineRef.current?.(pipeline)
   }, [geometry, photoBlob, regionInstances])
 
   useEffect(() => {
@@ -167,6 +195,7 @@ export function Simulator({
       generationRef.current += 1
       pipelineRef.current?.destroy()
       pipelineRef.current = null
+      onPipelineRef.current?.(null)
     }
   }, [mountPipeline])
 
@@ -226,6 +255,12 @@ export function Simulator({
     [presets],
   )
 
+  /** Raio inscrito da região em fração de DIP — a unidade dos clamps. */
+  const inscribedIpd = useCallback(
+    (instance: RegionInstance) => (instance.inscribedU * geometry.width) / geometry.ipdPx,
+    [geometry.ipdPx, geometry.width],
+  )
+
   const addAt = useCallback(
     (instance: RegionInstance, point: Point2) => {
       const preset = presetFor(instance.region.id, activeTechnique)
@@ -234,10 +269,12 @@ export function Simulator({
         point,
         technique: activeTechnique,
         intensity: preset?.default_intensity ?? DEFAULT_INTENSITY,
-        radiusIpd: preset?.default_radius_ipd ?? DEFAULT_RADIUS_IPD,
+        radiusIpd:
+          preset?.default_radius_ipd ??
+          defaultRadiusIpd(inscribedIpd(instance), instance.region.id, activeTechnique),
       })
     },
-    [activeTechnique, addApplication, presetFor],
+    [activeTechnique, addApplication, inscribedIpd, presetFor],
   )
 
   const handleStagePointerDown = useCallback(
@@ -380,10 +417,10 @@ export function Simulator({
    * Só as regiões que aceitam a técnica ativa. Desenhar as outras apagadas
    * enchia o rosto de rótulo inútil — e o rosto é o conteúdo.
    *
-   * O ponto fica no landmark de ancoragem da região, não no centróide do
-   * polígono. Em região alongada como a linha mandibular, o centro do fecho
-   * convexo cai no meio da bochecha: longe da mandíbula e por cima do ponto de
-   * outra região.
+   * O anel fica no núcleo da região — o ponto mais fundo dentro do polígono —,
+   * que é onde a aplicação nasce ao tocar nele. Ficava no landmark de
+   * ancoragem, que é um vértice do fecho convexo: na borda, onde a máscara vale
+   * zero. O anel apontava para o único lugar da região onde tocar não faz nada.
    */
   const chips = useMemo(() => {
     if (stageSize.width === 0) return []
@@ -391,23 +428,14 @@ export function Simulator({
     return regionInstances
       .filter((instance) => instance.region.techniques.includes(activeTechnique))
       .map((instance) => {
-        const anchor = geometry.landmarks[anchorIndexFor(instance.region, instance.side)]
-        const point = anchor ? { x: anchor.x, y: anchor.y } : instance.centroid
+        const point = instance.core
         return {
           instance,
           point,
           position: imagePointToClient(point, stageRect, geometry.width, geometry.height),
         }
       })
-  }, [
-    activeTechnique,
-    geometry.height,
-    geometry.landmarks,
-    geometry.width,
-    regionInstances,
-    stageRect,
-    stageSize.width,
-  ])
+  }, [activeTechnique, geometry.height, geometry.width, regionInstances, stageRect, stageSize.width])
 
   const markers = useMemo(() => {
     if (stageSize.width === 0) return []

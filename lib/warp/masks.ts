@@ -17,6 +17,12 @@ import { MASK_FEATHER_IPD, MAX_MASK_SLOTS, MAX_MASK_TEXTURES } from './filters/c
  *
  * O feather cresce para dentro. Máscara que vaza para fora arrasta fundo e
  * cabelo junto com a pele, e é o artefato que mais denuncia simulação.
+ *
+ * E o feather é limitado pelo tamanho da própria região. Um valor fixo em DIP
+ * funciona na malar e destrói o vermelhão do lábio: a região tem meio feather de
+ * espessura, a máscara nunca chega a 1, e a aplicação sai com uma fração da
+ * amplitude que o profissional pediu. Aqui ele nunca passa da metade do raio
+ * inscrito, então toda região tem um núcleo de máscara cheia.
  */
 
 interface HalfPlane {
@@ -99,7 +105,7 @@ export function buildMaskAtlas(
   }
 
   const slots = new Map<string, number>()
-  const feather = Math.max(2, MASK_FEATHER_IPD * ipdPx)
+  const featherCeiling = MASK_FEATHER_IPD * ipdPx
 
   used.forEach((instance, slot) => {
     slots.set(instance.key, slot)
@@ -109,6 +115,9 @@ export function buildMaskAtlas(
     const channel = slot % 4
     const planes = halfPlanes(instance.polygon, photoWidth, photoHeight)
     if (planes.length === 0) return
+
+    const inscribedPx = instance.inscribedU * photoWidth
+    const feather = Math.max(2, Math.min(featherCeiling, inscribedPx * 0.5))
 
     for (let row = 0; row < fieldHeight; row += 1) {
       const y = ((row + 0.5) / fieldHeight) * photoHeight

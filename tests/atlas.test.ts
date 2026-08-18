@@ -6,9 +6,10 @@ import {
   centroidOf,
   convexHull,
   getRegion,
+  inscribedCircle,
   REGION_IDS,
 } from '@/lib/face/atlas'
-import { polygonArea } from '@/lib/face/hitTest'
+import { pointInPolygon, polygonArea } from '@/lib/face/hitTest'
 import type { Landmark } from '@/lib/face/types'
 
 /** Rosto sintético: cada landmark num ponto distinto e determinístico. */
@@ -106,7 +107,7 @@ describe('atlas clínico', () => {
   })
 
   it('produz uma instância por lado, com chave única', () => {
-    const instances = buildRegionInstances(syntheticFace())
+    const instances = buildRegionInstances(syntheticFace(), 0.75)
     const keys = instances.map((instance) => instance.key)
 
     expect(new Set(keys).size).toBe(keys.length)
@@ -116,7 +117,7 @@ describe('atlas clínico', () => {
   })
 
   it('dá a cada instância um polígono com área e um centróide dentro dele', () => {
-    for (const instance of buildRegionInstances(syntheticFace())) {
+    for (const instance of buildRegionInstances(syntheticFace(), 0.75)) {
       expect(instance.polygon.length).toBeGreaterThanOrEqual(3)
       expect(polygonArea(instance.polygon)).toBeGreaterThan(0)
 
@@ -124,6 +125,57 @@ describe('atlas clínico', () => {
       expect(centroid.x).toBeCloseTo(instance.centroid.x, 12)
       expect(centroid.y).toBeCloseTo(instance.centroid.y, 12)
     }
+  })
+
+  /**
+   * O núcleo é onde a aplicação nasce. Se ele cair na borda, a máscara da região
+   * vale zero ali e o toque não muda a foto — que foi exatamente o defeito.
+   */
+  it('põe o núcleo dentro do polígono, com folga', () => {
+    for (const instance of buildRegionInstances(syntheticFace(), 0.75)) {
+      expect(pointInPolygon(instance.core, instance.polygon), instance.key).toBe(true)
+      expect(instance.inscribedU, instance.key).toBeGreaterThan(0)
+
+      // A folga é o raio inscrito: a borda mais próxima está a essa distância.
+      // Medida no espaço quadrado, que é onde o raio foi calculado.
+      const distance = Math.min(
+        ...instance.polygon.map((_, index) => {
+          const a = instance.polygon[index] as { x: number; y: number }
+          const b = instance.polygon[(index + 1) % instance.polygon.length] as {
+            x: number
+            y: number
+          }
+          const ex = b.x - a.x
+          const ey = (b.y - a.y) / 0.75
+          const length = Math.hypot(ex, ey)
+          if (length < 1e-9) return Number.POSITIVE_INFINITY
+          return Math.abs(
+            (ex * (instance.core.y / 0.75 - a.y / 0.75) - ey * (instance.core.x - a.x)) / length,
+          )
+        }),
+      )
+      expect(distance, instance.key).toBeGreaterThanOrEqual(instance.inscribedU - 1e-6)
+    }
+  })
+
+  /**
+   * O núcleo do fecho convexo de um círculo é o centro dele, e o raio inscrito é
+   * o raio. Um caso com resposta conhecida, para o método não passar por
+   * construção.
+   */
+  it('acha o centro de um círculo', () => {
+    const circle = Array.from({ length: 24 }, (_, index) => {
+      const angle = (index / 24) * Math.PI * 2
+      return { x: 0.5 + 0.2 * Math.cos(angle), y: 0.5 + 0.2 * Math.sin(angle) }
+    })
+
+    const inscribed = inscribedCircle(circle, 1)
+    expect(inscribed.center.x).toBeCloseTo(0.5, 3)
+    expect(inscribed.center.y).toBeCloseTo(0.5, 3)
+    // O fecho de 24 pontos é um polígono inscrito: o raio até a aresta é um
+    // pouco menor que o do círculo.
+    expect(inscribed.radius).toBeGreaterThan(0.19)
+    expect(inscribed.radius).toBeLessThanOrEqual(0.2)
   })
 
   it('escolhe a âncora certa para cada lado', () => {

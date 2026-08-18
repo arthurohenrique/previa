@@ -188,6 +188,28 @@ export interface RegionInstance {
   /** Polígono no espaço normalizado da foto, já em fecho convexo. */
   polygon: Point2[]
   centroid: Point2
+  /**
+   * Núcleo da região: o ponto mais fundo dentro do polígono (centro de
+   * Chebyshev), em coordenada normalizada da foto.
+   *
+   * É aqui que a aplicação nasce, e não no landmark de ancoragem. O landmark de
+   * ancoragem é um **vértice** do fecho convexo — está na borda por
+   * construção —, e a máscara da região vale zero na borda. Ancorar ali punha
+   * metade do efeito fora da máscara e a outra metade na parte em que ela ainda
+   * está subindo: o profissional tocava, o marcador aparecia, e a foto não
+   * mudava. O centróide também não serve: em região alongada como a linha
+   * mandibular ele cai no meio da bochecha, longe do tecido tratado.
+   */
+  core: Point2
+  /**
+   * Raio inscrito da região — a distância do núcleo até a borda mais próxima —
+   * em fração da **largura** da foto.
+   *
+   * É a medida de quanto efeito cabe aqui dentro. O feather da máscara e o raio
+   * padrão da aplicação saem dele; sem isso, uma região fina como o vermelhão do
+   * lábio recebe um feather maior que ela inteira e nunca chega a máscara cheia.
+   */
+  inscribedU: number
   key: string
 }
 
@@ -218,6 +240,114 @@ export function convexHull(points: readonly Point2[]): Point2[] {
   return [...build(sorted), ...build([...sorted].reverse())]
 }
 
+/**
+ * Maior círculo que cabe no polígono convexo: centro e raio.
+ *
+ * O cálculo acontece num espaço de pixels quadrados — `(u, v / aspecto)` —, senão
+ * o "mais fundo" sai enviesado para o eixo curto em foto que não é 1:1. O raio
+ * volta em fração da largura da foto, que é a unidade de `u`.
+ *
+ * O método é busca direta: uma grade grossa para achar a bacia certa e um
+ * refinamento local que reduz o passo pela metade. Polígono convexo tem um
+ * máximo só, então não há bacia errada onde cair. Custa alguns milhares de
+ * produtos escalares por região, uma vez por sessão, fora do caminho dos 16 ms.
+ */
+export function inscribedCircle(
+  polygon: readonly Point2[],
+  aspect: number,
+): { center: Point2; radius: number } {
+  if (polygon.length < 3) {
+    const fallback = centroidOf(polygon)
+    return { center: fallback, radius: 0 }
+  }
+
+  // Espaço quadrado: y em unidades de largura.
+  const points = polygon.map((point) => ({ x: point.x, y: point.y / aspect }))
+
+  let minX = Number.POSITIVE_INFINITY
+  let maxX = Number.NEGATIVE_INFINITY
+  let minY = Number.POSITIVE_INFINITY
+  let maxY = Number.NEGATIVE_INFINITY
+  for (const point of points) {
+    if (point.x < minX) minX = point.x
+    if (point.x > maxX) maxX = point.x
+    if (point.y < minY) minY = point.y
+    if (point.y > maxY) maxY = point.y
+  }
+
+  // Distância até a borda, positiva dentro. Num convexo, é o mínimo das
+  // distâncias até as retas das arestas.
+  const depth = (x: number, y: number): number => {
+    let best = Number.POSITIVE_INFINITY
+    for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+      const a = points[j] as Point2
+      const b = points[i] as Point2
+      const ex = b.x - a.x
+      const ey = b.y - a.y
+      const length = Math.hypot(ex, ey)
+      if (length < 1e-9) continue
+      // Sinal resolvido depois: aqui só o módulo, e o ponto de fora é descartado
+      // pelo teste de orientação abaixo.
+      const cross = (ex * (y - a.y) - ey * (x - a.x)) / length
+      if (cross < best) best = cross
+    }
+    return best
+  }
+
+  // O fecho convexo pode vir em qualquer sentido; o sinal de `depth` no
+  // centróide diz qual é o lado de dentro.
+  const seed = centroidOf(points)
+  const orientation = depth(seed.x, seed.y) >= 0 ? 1 : -1
+  const inside = (x: number, y: number) => depth(x, y) * orientation
+
+  let bestX = seed.x
+  let bestY = seed.y
+  let bestDepth = inside(seed.x, seed.y)
+
+  const steps = 16
+  for (let row = 0; row <= steps; row += 1) {
+    const y = minY + ((maxY - minY) * row) / steps
+    for (let col = 0; col <= steps; col += 1) {
+      const x = minX + ((maxX - minX) * col) / steps
+      const value = inside(x, y)
+      if (value > bestDepth) {
+        bestDepth = value
+        bestX = x
+        bestY = y
+      }
+    }
+  }
+
+  let step = Math.max((maxX - minX) / steps, (maxY - minY) / steps)
+  for (let iteration = 0; iteration < 24 && step > 1e-6; iteration += 1) {
+    let moved = false
+    for (const [dx, dy] of [
+      [step, 0],
+      [-step, 0],
+      [0, step],
+      [0, -step],
+      [step, step],
+      [step, -step],
+      [-step, step],
+      [-step, -step],
+    ] as const) {
+      const value = inside(bestX + dx, bestY + dy)
+      if (value > bestDepth) {
+        bestDepth = value
+        bestX += dx
+        bestY += dy
+        moved = true
+      }
+    }
+    if (!moved) step /= 2
+  }
+
+  return {
+    center: { x: bestX, y: bestY * aspect },
+    radius: Math.max(0, bestDepth),
+  }
+}
+
 export function centroidOf(points: readonly Point2[]): Point2 {
   if (points.length === 0) return { x: 0.5, y: 0.5 }
   let x = 0
@@ -241,8 +371,15 @@ function collect(landmarks: readonly Landmark[], indices: readonly number[]): Po
 /**
  * Constrói todas as instâncias de região para um rosto detectado. Chamado uma
  * vez por sessão, logo depois da detecção.
+ *
+ * `aspect` é largura/altura da foto. Ele entra porque o núcleo e o raio inscrito
+ * são distâncias, e distância em coordenada normalizada não é distância: numa
+ * foto 3:4, um passo de 0.01 em v vale 33% mais pixels que o mesmo passo em u.
  */
-export function buildRegionInstances(landmarks: readonly Landmark[]): RegionInstance[] {
+export function buildRegionInstances(
+  landmarks: readonly Landmark[],
+  aspect: number,
+): RegionInstance[] {
   const instances: RegionInstance[] = []
 
   for (const region of ATLAS) {
@@ -257,11 +394,14 @@ export function buildRegionInstances(landmarks: readonly Landmark[]): RegionInst
       const points = collect(landmarks, indices)
       if (points.length < 3) continue
       const polygon = convexHull(points)
+      const inscribed = inscribedCircle(polygon, aspect)
       instances.push({
         region,
         side,
         polygon,
         centroid: centroidOf(polygon),
+        core: inscribed.center,
+        inscribedU: inscribed.radius,
         key: side === 'center' ? region.id : `${region.id}:${side}`,
       })
     }

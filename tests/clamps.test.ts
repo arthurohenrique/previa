@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { REGION_IDS, getRegion } from '@/lib/face/atlas'
-import { amplitudeFor, clampFor, clampRadius, smoothingFor } from '@/lib/warp/clamps'
+import {
+  amplitudeFor,
+  clampFor,
+  clampRadius,
+  defaultRadiusIpd,
+  smoothingFor,
+} from '@/lib/warp/clamps'
 import type { Technique } from '@/lib/supabase/types'
 
 const TECHNIQUES: Technique[] = ['filler', 'toxin', 'biostimulator', 'rhinomodeling']
@@ -33,12 +39,22 @@ describe('limites de amplitude', () => {
     }
   })
 
-  it('entrega um quarto do teto na metade do controle', () => {
-    // A curva é quadrática de propósito: dá resolução fina na faixa usada e
-    // torna o exagero um gesto deliberado.
+  it('entrega metade do teto na metade do controle', () => {
+    // O mapa é linear. Já foi quadrático, e o padrão de 45% entregava 20% do
+    // teto: com a máscara por cima, uma simulação que não se via. O teto é o
+    // limite de segurança; a curva não é lugar de escondê-lo.
     const half = amplitudeFor(0.5, 'chin', 'filler')
     const full = amplitudeFor(1, 'chin', 'filler')
-    expect(half / full).toBeCloseTo(0.25, 10)
+    expect(half / full).toBeCloseTo(0.5, 10)
+  })
+
+  it('o raio padrão acompanha o tamanho da região e respeita o teto', () => {
+    // Região pequena: o raio padrão é uma vez e meia o raio inscrito, mas nunca
+    // menos que o mínimo da técnica.
+    const limits = clampFor('malar', 'filler')
+    expect(defaultRadiusIpd(0.14, 'malar', 'filler')).toBeCloseTo(0.21, 10)
+    expect(defaultRadiusIpd(0.001, 'malar', 'filler')).toBe(limits.minRadiusIpd)
+    expect(defaultRadiusIpd(10, 'malar', 'filler')).toBe(limits.maxRadiusIpd)
   })
 })
 

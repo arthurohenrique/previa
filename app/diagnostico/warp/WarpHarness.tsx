@@ -156,7 +156,7 @@ export function WarpHarness() {
         container: stage,
         photo,
         ipdPx: IPD_PX,
-        regionInstances: buildRegionInstances(landmarks),
+        regionInstances: buildRegionInstances(landmarks, WIDTH / HEIGHT),
       })
 
       if (cancelled) {

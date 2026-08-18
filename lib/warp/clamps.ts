@@ -100,10 +100,17 @@ export function clampRadius(
 /**
  * Amplitude efetiva em fração de DIP.
  *
- * `intensity` é adimensional 0..1 e não tem qualquer relação com dose. A curva
- * é quadrática de propósito: a metade do controle entrega um quarto do teto, o
- * que dá resolução fina na faixa que o profissional realmente usa e torna o
- * exagero um gesto deliberado, não um deslize de dedo.
+ * `intensity` é adimensional 0..1 e não tem qualquer relação com dose. O mapa é
+ * linear: metade do controle é metade do deslocamento máximo seguro daquela
+ * região.
+ *
+ * Era quadrático, com o argumento de dar resolução fina perto de zero. O efeito
+ * real foi outro: o teto já é conservador — 0.038 DIP são cerca de 2,4 mm
+ * aparentes —, e elevar ao quadrado punha o padrão de 45% em 20% desse teto,
+ * meio milímetro. Somado à máscara, a simulação virava uma foto que não muda, e
+ * um simulador que não simula não protege ninguém: o profissional sobe o
+ * controle até o fim e trabalha sempre no limite. O teto continua sendo o
+ * limite de segurança (D-05); a curva não é lugar de escondê-lo.
  */
 export function amplitudeFor(
   intensity: number,
@@ -111,8 +118,26 @@ export function amplitudeFor(
   technique: Technique,
 ): number {
   const limits = clampFor(regionId, technique)
-  const normalized = clamp(intensity, 0, 1)
-  return limits.maxAmplitudeIpd * normalized * normalized
+  return limits.maxAmplitudeIpd * clamp(intensity, 0, 1)
+}
+
+/**
+ * Raio padrão de uma aplicação nova, a partir do raio inscrito da região.
+ *
+ * O raio fixo de antes ignorava o tamanho da região: 0.16 DIP transbordava a
+ * glabela e cabia folgado na linha mandibular. Transbordar é o caso ruim — o
+ * pico do perfil de bojo fica em um terço do raio, e se o raio for grande demais
+ * esse pico cai fora da máscara, onde não há tecido para empurrar.
+ *
+ * Uma vez e meia o raio inscrito põe o pico a meio caminho do núcleo, com a
+ * borda do efeito morrendo junto com a máscara.
+ */
+export function defaultRadiusIpd(
+  inscribedIpd: number,
+  regionId: RegionId,
+  technique: Technique,
+): number {
+  return clampRadius(inscribedIpd * 1.5, regionId, technique)
 }
 
 /** Mistura de suavização efetiva. Só a toxina usa em quantidade relevante. */

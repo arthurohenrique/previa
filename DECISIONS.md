@@ -258,6 +258,49 @@ de tamanho fixo, e 1/4 da foto é a escolha deliberada de D-08.
 
 `e2e/warp.spec.ts` mede, e `tests/guardrails.test.ts` exige os dois `'inherit'`.
 
+### D-22 — A aplicação nasce no núcleo da região, e a intensidade é linear
+
+O simulador não simulava. Tocar numa região punha o marcador na tela, abria o
+painel, gravava a aplicação — e a foto não mudava. Medido na bancada: 0,12% dos
+pixels alterados com o controle no máximo, deslocamento perto de zero.
+
+Eram três perdas em série, e cada uma multiplicava a seguinte.
+
+**O ponto de aplicação estava na borda.** A aplicação nascia no landmark de
+ancoragem, que é um dos índices da própria região — logo, um vértice do fecho
+convexo. A máscara da região vale zero na borda por construção (é o que impede a
+simulação de arrastar fundo e cabelo). O anel apontava exatamente para o único
+lugar da região onde tocar não faz efeito. Agora cada instância carrega um
+`core`: o centro do maior círculo que cabe no polígono. É onde o anel é
+desenhado e onde a aplicação nasce.
+
+**O feather era maior que a região.** 0,09 DIP fixo. A malar tem folga para
+isso; o vermelhão do lábio tem meia espessura disso, e a máscara dele nunca
+chegava perto de 1 — a amplitude pedida saía cortada em qualquer lugar da
+região. O feather agora é limitado a metade do raio inscrito, então toda região
+tem núcleo de máscara cheia.
+
+**A curva escondia o teto.** `amplitudeFor` elevava a intensidade ao quadrado.
+O teto do preenchedor já é conservador — 0,038 DIP, cerca de 2,4 mm aparentes —,
+e o padrão de 45% entregava 20% disso: meio milímetro, antes da máscara. O mapa
+agora é linear, e o padrão subiu para 50%. O teto continua onde estava, que é o
+que D-05 protege; a curva não é lugar de esconder limite de segurança. Uma
+simulação que não se vê não protege ninguém — o profissional conclui que o
+controle não funciona e trabalha sempre no fim do curso.
+
+O raio padrão também deixou de ser fixo: 1,5 vez o raio inscrito da região,
+ainda sob o teto da técnica. O pico do perfil de bojo fica em um terço do raio,
+e com raio fixo esse pico caía fora da máscara nas regiões pequenas.
+
+Depois das três, medido na mesma bancada, na glabela: deslocamento de 7,0 px no
+padrão e 13,0 px no máximo, contra um teto de 13,3 px. Antes: nada mensurável.
+
+`e2e/simulacao.spec.ts` mede tudo isso pelo caminho do produto — toque no anel,
+store, atlas, máscara — sobre a bancada `/diagnostico/interface`.
+`e2e/warp.spec.ts` continua medindo o pipeline isolado. As duas provas são
+necessárias: o pipeline sempre esteve certo, e era a integração que estava
+errada.
+
 ### D-21 — O controle não fica por cima da foto
 
 O painel de ajuste abria flutuando sobre o rosto. No único momento em que o
@@ -515,6 +558,7 @@ Se não piorou, ele não volta.
 | 2026-08-14 | D-08 detalhado com a soma no shader; D-11 a D-14 e E-08 acrescentados durante a implementação do warp. | Engenharia |
 | 2026-08-14 | D-16 e E-09: captura pelo celular por WebRTC. **Emenda à regra de ouro (D-01)** — a foto passa a existir em dois aparelhos da clínica. | Engenharia |
 | 2026-08-14 | D-17 e D-18: regiões viram anéis, e precisão de fragmento explícita nos shaders. Correção de dois defeitos de render que só aparecem em navegador; bancada em `/diagnostico/render`. | Engenharia |
+| 2026-08-18 | D-22: a simulação não se via. Aplicação passa a nascer no núcleo da região, feather limitado pelo raio inscrito, intensidade linear. Medido em `e2e/simulacao.spec.ts`. | Engenharia |
 | 2026-08-18 | D-21: o painel de ajuste sai de cima da foto. Palco e controles viram irmãos num flex, com altura reservada para não reescalar a foto ao selecionar. Bancada em `/diagnostico/interface`. | Engenharia |
 | 2026-08-18 | D-20: em teste, a raiz vira a tela de captura e simulação e o `proxy.ts` para de redirecionar para o login. Nada de RLS mudou. | Engenharia |
 | 2026-08-14 | D-19 e a nota de proporção em D-08: dois defeitos achados medindo pixel. O deslocamento passava 32% do teto da região, e os filtros rodavam a metade da resolução do aparelho. Bancada em `/diagnostico/warp` e `e2e/warp.spec.ts`. | Engenharia |
