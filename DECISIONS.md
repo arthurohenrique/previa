@@ -258,6 +258,29 @@ de tamanho fixo, e 1/4 da foto é a escolha deliberada de D-08.
 
 `e2e/warp.spec.ts` mede, e `tests/guardrails.test.ts` exige os dois `'inherit'`.
 
+### D-20 — Em teste, a raiz é o simulador e não há porteiro
+
+O produto tem duas metades com exigências opostas. Foto, detecção, warp e render
+não precisam de conta: rodam inteiros no aparelho, e a foto nunca sai dele
+(D-01). Paciente, consentimento, protocolo e auditoria só existem sob RLS, e
+precisam de perfil.
+
+Enquanto o app está em teste, `/` é a primeira metade e mais nada. O redirect
+preventivo do `proxy.ts` saiu — ele mandava qualquer visitante para `/login`
+antes de a rota decidir o que fazer. As rotas que tocam em dado de paciente
+continuam pedindo perfil no próprio `layout`, então o que caiu foi a barreira
+antecipada, não a autorização: quem abrir `/pacientes` sem sessão continua
+parando no login, e nenhuma política do Postgres foi afrouxada.
+
+O que a tela solta não oferece — PDF, sincronização e captura pelo celular —
+está em `app/TestBench.tsx` e no README. A ficha é o caso interessante: ela sai
+do fluxo em vez de sair marcada como teste, porque a marca d'água existe para
+amarrar a simulação a um conselho e a um número de registro, e uma ficha anônima
+é o que ela existe para impedir.
+
+O bloco removido do `proxy.ts` ficou comentado no lugar, e o caminho de volta
+está no README.
+
 ### D-09 — Modelo e WASM servidos da própria origem
 
 O `.task` fica em `/public/models/` e o runtime WASM é copiado do `node_modules`
@@ -467,6 +490,7 @@ Se não piorou, ele não volta.
 | 2026-08-14 | D-08 detalhado com a soma no shader; D-11 a D-14 e E-08 acrescentados durante a implementação do warp. | Engenharia |
 | 2026-08-14 | D-16 e E-09: captura pelo celular por WebRTC. **Emenda à regra de ouro (D-01)** — a foto passa a existir em dois aparelhos da clínica. | Engenharia |
 | 2026-08-14 | D-17 e D-18: regiões viram anéis, e precisão de fragmento explícita nos shaders. Correção de dois defeitos de render que só aparecem em navegador; bancada em `/diagnostico/render`. | Engenharia |
+| 2026-08-18 | D-20: em teste, a raiz vira a tela de captura e simulação e o `proxy.ts` para de redirecionar para o login. Nada de RLS mudou. | Engenharia |
 | 2026-08-14 | D-19 e a nota de proporção em D-08: dois defeitos achados medindo pixel. O deslocamento passava 32% do teto da região, e os filtros rodavam a metade da resolução do aparelho. Bancada em `/diagnostico/warp` e `e2e/warp.spec.ts`. | Engenharia |
 
 ---

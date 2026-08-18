@@ -11,14 +11,20 @@ export type CaptureProblem =
   | { kind: 'quality'; issues: QualityIssue[] }
 
 interface PhotoCaptureProps {
-  patientName: string
+  /** Ausente quando não há paciente: o simulador rodando solto, em teste. */
+  patientName?: string
   /** Bloqueia as ações: carregando a sessão local ou analisando a foto. */
   busy: boolean
   /** Só a análise troca o rótulo do botão — carregar não é um estado a anunciar. */
   analyzing: boolean
   problem: CaptureProblem | null
   onFile: (file: File) => void
-  onUsePhone: () => void
+  /**
+   * Ausente quando não há pareamento possível: a captura pelo celular precisa de
+   * um paciente e de um profissional autenticado para abrir o pareamento, e o
+   * simulador rodando solto não tem nem um nem outro.
+   */
+  onUsePhone?: (() => void) | undefined
 }
 
 /**
@@ -84,7 +90,9 @@ export function PhotoCapture({
       </div>
 
       <div className="flex w-full max-w-50 flex-col gap-2">
-        <h1 className="text-large-title text-label">Prévia de {patientName}</h1>
+        <h1 className="text-large-title text-label">
+          {patientName ? `Prévia de ${patientName}` : 'Prévia'}
+        </h1>
 
         {problem ? (
           <div role="alert" className="flex flex-col gap-0.5">
@@ -100,7 +108,7 @@ export function PhotoCapture({
           </div>
         ) : (
           <p className="text-body text-label-secondary">
-            Fotografe o paciente para começar. A foto fica neste dispositivo.
+            Fotografe o paciente para começar. A foto fica neste aparelho.
           </p>
         )}
 
@@ -125,25 +133,27 @@ export function PhotoCapture({
 
         <div className="flex flex-col gap-1">
           <Button
-            variant={onDesktop ? 'secondary' : 'primary'}
+            variant={onDesktop && onUsePhone ? 'secondary' : 'primary'}
             disabled={busy}
             className="w-full"
             onClick={() => inputRef.current?.click()}
           >
-            {analyzing ? 'Analisando' : 'Fotografar aqui'}
+            {analyzing ? 'Analisando' : onUsePhone ? 'Fotografar aqui' : 'Fotografar'}
           </Button>
 
-          <Button
-            variant={onDesktop ? 'primary' : 'secondary'}
-            disabled={busy}
-            className="w-full"
-            onClick={onUsePhone}
-          >
-            Fotografar pelo celular
-          </Button>
+          {onUsePhone ? (
+            <Button
+              variant={onDesktop ? 'primary' : 'secondary'}
+              disabled={busy}
+              className="w-full"
+              onClick={onUsePhone}
+            >
+              Fotografar pelo celular
+            </Button>
+          ) : null}
         </div>
 
-        {onDesktop ? (
+        {onDesktop && onUsePhone ? (
           <p className="text-footnote text-label-secondary">
             Webcam de monitor não enquadra rosto de perto. Pelo celular, a foto vem direto para
             esta tela.

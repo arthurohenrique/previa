@@ -10,8 +10,13 @@ interface CompareSheetProps {
   onClose: () => void
   before: Blob | null
   after: Blob | null
-  onExport: () => void
-  exporting: boolean
+  /**
+   * Ausente quando não há profissional identificado — o simulador rodando solto,
+   * em teste. Ficha sem conselho e sem número de registro é exatamente o que a
+   * marca d'água existe para impedir, então nesse caso não se oferece nenhuma.
+   */
+  onExport?: (() => void) | undefined
+  exporting?: boolean
 }
 
 /** Cortina antes/depois. As duas imagens vivem em memória e nunca sobem. */
@@ -21,7 +26,7 @@ export function CompareSheet({
   before,
   after,
   onExport,
-  exporting,
+  exporting = false,
 }: CompareSheetProps) {
   // A URL é derivada do blob, não um estado à parte: guardá-la em `useState`
   // dentro de um efeito custa um render extra e abre espaço para vazar a URL
@@ -64,9 +69,11 @@ export function CompareSheet({
           <Button variant="plain" onClick={onClose}>
             Fechar
           </Button>
-          <Button variant="primary" disabled={exporting || !afterUrl} onClick={onExport}>
-            {exporting ? 'Gerando ficha' : 'Gerar ficha'}
-          </Button>
+          {onExport ? (
+            <Button variant="primary" disabled={exporting || !afterUrl} onClick={onExport}>
+              {exporting ? 'Gerando ficha' : 'Gerar ficha'}
+            </Button>
+          ) : null}
         </div>
       </div>
     </Sheet>

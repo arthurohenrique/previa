@@ -41,13 +41,23 @@ const DEFAULT_INTENSITY = 0.45
 const DEFAULT_RADIUS_IPD = 0.16
 
 interface SimulatorProps {
-  sessionId: string
-  patientName: string
   photoBlob: Blob
   geometry: FaceGeometry
-  presets: PresetRow[]
-  professional: { full_name: string; council_type: string | null; council_number: string | null } | null
   onRetake: () => void
+  /**
+   * Identificação do atendimento. Ausentes quando o simulador roda solto — em
+   * teste, sem paciente e sem profissional. Aí a barra não mostra a pílula de
+   * navegação e a ficha em PDF não é oferecida: uma ficha sem conselho e sem
+   * número de registro é exatamente o que a marca d'água existe para impedir.
+   */
+  sessionId?: string
+  patientName?: string
+  professional?: {
+    full_name: string
+    council_type: string | null
+    council_number: string | null
+  } | null
+  presets?: PresetRow[]
 }
 
 interface Size {
@@ -56,13 +66,13 @@ interface Size {
 }
 
 export function Simulator({
-  sessionId,
-  patientName,
   photoBlob,
   geometry,
-  presets,
-  professional,
   onRetake,
+  sessionId,
+  patientName,
+  professional = null,
+  presets = [],
 }: SimulatorProps) {
   const stageRef = useRef<HTMLDivElement>(null)
   const overlayRef = useRef<HTMLDivElement>(null)
@@ -332,7 +342,7 @@ export function Simulator({
       ]
 
       const pdf = await buildFicha({
-        patientName,
+        patientName: patientName ?? "Paciente",
         professionalName: professional?.full_name ?? 'Profissional não identificado',
         council:
           professional?.council_type && professional.council_number
@@ -344,7 +354,7 @@ export function Simulator({
         regions,
       })
 
-      await deliverFicha(pdf, `previa-${sessionId.slice(0, 8)}.pdf`)
+      await deliverFicha(pdf, `previa-${(sessionId ?? "sessao").slice(0, 8)}.pdf`)
     } finally {
       setExporting(false)
     }
@@ -503,15 +513,19 @@ export function Simulator({
       {/* Barra superior. Material translúcido: o profissional continua vendo a
           foto por baixo do controle. */}
       <header className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between gap-1 p-1 safe-t safe-x">
-        <div className="pointer-events-auto flex items-center gap-0.5 rounded-capsule material px-0.5">
-          <Link
-            href="/pacientes"
-            className="flex touch-44 items-center justify-center px-1 text-subhead text-accent"
-          >
-            Pacientes
-          </Link>
-          <span className="max-w-24 truncate px-0.5 text-subhead text-label">{patientName}</span>
-        </div>
+        {patientName ? (
+          <div className="pointer-events-auto flex items-center gap-0.5 rounded-capsule material px-0.5">
+            <Link
+              href="/pacientes"
+              className="flex touch-44 items-center justify-center px-1 text-subhead text-accent"
+            >
+              Pacientes
+            </Link>
+            <span className="max-w-24 truncate px-0.5 text-subhead text-label">{patientName}</span>
+          </div>
+        ) : (
+          <span />
+        )}
 
         <div className="pointer-events-auto flex items-center gap-0.5 rounded-capsule material px-0.5">
           <button
@@ -623,7 +637,7 @@ export function Simulator({
         before={beforeBlob}
         after={afterBlob}
         exporting={exporting}
-        onExport={() => void exportFicha()}
+        onExport={professional ? () => void exportFicha() : undefined}
       />
     </div>
   )

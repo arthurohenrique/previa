@@ -39,6 +39,10 @@ cp .env.example .env.local
 pnpm dev
 ```
 
+A raiz abre direto na tela de captura: fotografar e simular, sem conta e sem
+banco. Veja **Modo teste** logo abaixo — as telas de paciente e protocolo
+continuam existindo e continuam exigindo login.
+
 ### Banco, num projeto Supabase hospedado
 
 Um script só, idempotente: **[`supabase/setup.sql`](./supabase/setup.sql)**. Ele
@@ -104,6 +108,29 @@ Usuários do seed local — senha `previa-dev-2026`:
 
 A segunda clínica existe para o teste de isolamento: o usuário da clínica A não
 pode ler nada da clínica B.
+
+---
+
+## Modo teste — a raiz é só o simulador
+
+Enquanto o app está em teste, `/` é a tela de captura e simulação, sem porteiro:
+o visitante fotografa e simula na hora. É a parte que não precisa de conta
+nenhuma, porque foto, detecção, warp e render são 100% do aparelho (D-01).
+
+O que fica de fora nesse caminho, e por quê:
+
+- **Ficha em PDF.** A marca d'água existe para amarrar a simulação a um
+  profissional com conselho e número de registro. Sem esses dados o botão não
+  aparece: uma ficha anônima é exatamente o que a marca d'água impede.
+- **Sincronização.** Nada vai para o Supabase. Foto, geometria e aplicações
+  ficam no IndexedDB, numa sessão local fixa: recarregar devolve o trabalho de
+  onde parou, e fotografar de novo substitui.
+- **Fotografar pelo celular.** O pareamento pressupõe um profissional
+  autenticado e um paciente sob RLS; sem login não há o que parear.
+
+Para devolver o login: apague `app/page.tsx` e `app/TestBench.tsx`, recrie
+`app/(app)/page.tsx` com `redirect('/pacientes')` e descomente o bloco marcado
+em `proxy.ts`. Registrado como D-20 em [`DECISIONS.md`](./DECISIONS.md).
 
 ---
 
@@ -212,6 +239,8 @@ E2E_BASE_URL=http://localhost:3000 pnpm exec playwright test render
 ## Como está montado
 
 ```
+app/page.tsx                raiz em modo teste: captura + simulação, sem login
+app/TestBench.tsx           o estado dessa tela solta (Dexie, sem Supabase)
 app/(auth)/login            entrada
 app/(app)/pacientes         lista, ficha e consentimento
 app/(app)/sessao/[id]       a tela do simulador

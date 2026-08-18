@@ -52,6 +52,8 @@ pnpm db:reset         # aplica as migrations do zero
 - `params` e `searchParams` são `Promise`. Sempre `await`.
 - `cookies()`, `headers()`, `draftMode()` são assíncronos.
 - O arquivo de borda é **`proxy.ts`** na raiz, com `export function proxy()`.
+  Enquanto o app está em teste ele só renova a sessão: o redirect para `/login`
+  está comentado no lugar (D-20).
   `middleware.ts` está deprecado. O runtime é Node.js e não é configurável.
 - Turbopack é o padrão em `dev` e `build`. Não adicione config de webpack.
 - `next lint` foi removido; o lint é `eslint .` com flat config.
@@ -106,6 +108,7 @@ pnpm db:reset         # aplica as migrations do zero
 ## Mapa do repositório
 
 ```
+app/page.tsx                raiz em modo teste: captura + simulação, sem login (D-20)
 app/(auth)/login            entrada
 app/(app)/pacientes         lista e ficha do paciente
 app/(app)/sessao/[id]       a tela do simulador
