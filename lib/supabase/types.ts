@@ -68,7 +68,7 @@ export type SessionRow = {
 export type RegionRow = {
   id: string
   label: string
-  symmetric: boolean
+  bilateral: boolean
   sort_order: number
 }
 

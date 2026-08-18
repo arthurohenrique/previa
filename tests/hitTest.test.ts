@@ -44,7 +44,7 @@ function instance(key: string, polygon: Array<{ x: number; y: number }>): Region
     region: {
       id: 'chin',
       label: key,
-      symmetric: false,
+      bilateral: false,
       techniques: ['filler'],
       right: [],
       left: [],

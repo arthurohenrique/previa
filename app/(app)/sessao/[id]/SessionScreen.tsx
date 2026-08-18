@@ -64,7 +64,7 @@ type Phase = 'loading' | 'capture' | 'analyzing' | 'ready'
 /** Reconstrói o lado a partir do landmark âncora gravado no banco. */
 function sideFor(regionId: RegionId, anchorLandmark: number): Side {
   const region = getRegion(regionId)
-  if (!region.symmetric) return 'center'
+  if (!region.bilateral) return 'center'
   return anchorLandmark === region.anchorLeft ? 'left' : 'right'
 }
 

@@ -89,7 +89,7 @@ describe('atlas clínico', () => {
 
   it('dá aos lados de uma região simétrica conjuntos distintos e do mesmo tamanho', () => {
     for (const region of ATLAS) {
-      if (!region.symmetric) {
+      if (!region.bilateral) {
         expect(region.left).toHaveLength(0)
         continue
       }
@@ -111,8 +111,8 @@ describe('atlas clínico', () => {
 
     expect(new Set(keys).size).toBe(keys.length)
 
-    const symmetric = ATLAS.filter((region) => region.symmetric).length
-    expect(instances).toHaveLength(ATLAS.length + symmetric)
+    const bilateral = ATLAS.filter((region) => region.bilateral).length
+    expect(instances).toHaveLength(ATLAS.length + bilateral)
   })
 
   it('dá a cada instância um polígono com área e um centróide dentro dele', () => {

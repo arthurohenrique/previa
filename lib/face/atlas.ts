@@ -40,7 +40,7 @@ export type Side = 'left' | 'right' | 'center'
 export interface RegionDefinition {
   id: RegionId
   label: string
-  symmetric: boolean
+  bilateral: boolean
   /** Técnicas que fazem sentido clínico nesta região. */
   techniques: readonly Technique[]
   /** Índices do lado direito do paciente (esquerda da imagem) ou do centro. */
@@ -58,7 +58,7 @@ export const ATLAS: readonly RegionDefinition[] = [
   {
     id: 'glabella',
     label: 'Glabela',
-    symmetric: false,
+    bilateral: false,
     techniques: ['toxin', 'filler'],
     right: [9, 8, 168, 6, 55, 285, 107, 336, 65, 295],
     left: [],
@@ -69,7 +69,7 @@ export const ATLAS: readonly RegionDefinition[] = [
   {
     id: 'frontal',
     label: 'Frontal',
-    symmetric: false,
+    bilateral: false,
     techniques: ['toxin'],
     right: [10, 67, 109, 338, 297, 103, 332, 105, 334, 66, 296, 107, 336, 9, 21, 251],
     left: [],
@@ -80,7 +80,7 @@ export const ATLAS: readonly RegionDefinition[] = [
   {
     id: 'periorbital',
     label: 'Periorbital',
-    symmetric: true,
+    bilateral: true,
     techniques: ['toxin', 'filler'],
     right: [
       33, 246, 161, 160, 159, 158, 157, 173, 133, 155, 154, 153, 145, 144, 163, 7, 226, 25, 110,
@@ -97,7 +97,7 @@ export const ATLAS: readonly RegionDefinition[] = [
   {
     id: 'malar',
     label: 'Malar',
-    symmetric: true,
+    bilateral: true,
     techniques: ['filler', 'biostimulator'],
     right: [116, 117, 118, 119, 100, 126, 142, 36, 205, 187, 123, 50, 101, 207],
     left: [345, 346, 347, 348, 329, 355, 371, 266, 425, 411, 352, 280, 330, 427],
@@ -108,7 +108,7 @@ export const ATLAS: readonly RegionDefinition[] = [
   {
     id: 'nasolabial_fold',
     label: 'Sulco nasogeniano',
-    symmetric: true,
+    bilateral: true,
     techniques: ['filler', 'biostimulator'],
     right: [64, 129, 203, 206, 216, 212, 57, 61, 92, 165, 98],
     left: [294, 358, 423, 426, 436, 432, 287, 291, 322, 391, 327],
@@ -119,7 +119,7 @@ export const ATLAS: readonly RegionDefinition[] = [
   {
     id: 'nasal_dorsum',
     label: 'Dorso nasal',
-    symmetric: false,
+    bilateral: false,
     techniques: ['rhinomodeling', 'filler'],
     right: [168, 6, 197, 195, 5, 4, 45, 275, 51, 281, 248, 3, 1, 19],
     left: [],
@@ -130,7 +130,7 @@ export const ATLAS: readonly RegionDefinition[] = [
   {
     id: 'upper_lip',
     label: 'Lábio superior',
-    symmetric: false,
+    bilateral: false,
     techniques: ['filler'],
     right: [61, 291, 0, 13, 37, 267, 39, 269, 40, 270, 185, 409, 164, 165, 391, 78, 308],
     left: [],
@@ -141,7 +141,7 @@ export const ATLAS: readonly RegionDefinition[] = [
   {
     id: 'lower_lip',
     label: 'Lábio inferior',
-    symmetric: false,
+    bilateral: false,
     techniques: ['filler'],
     right: [61, 291, 17, 14, 84, 314, 181, 405, 91, 321, 146, 375, 87, 317, 178, 402, 88, 318],
     left: [],
@@ -152,7 +152,7 @@ export const ATLAS: readonly RegionDefinition[] = [
   {
     id: 'chin',
     label: 'Mento',
-    symmetric: false,
+    bilateral: false,
     techniques: ['filler', 'toxin', 'biostimulator'],
     right: [152, 175, 199, 200, 18, 83, 313, 148, 377, 176, 400, 32, 262, 421, 201],
     left: [],
@@ -163,7 +163,7 @@ export const ATLAS: readonly RegionDefinition[] = [
   {
     id: 'jawline',
     label: 'Linha mandibular',
-    symmetric: true,
+    bilateral: true,
     techniques: ['filler', 'biostimulator'],
     right: [172, 136, 150, 149, 176, 148, 152, 58, 132, 93, 234, 138, 135, 169, 170, 140, 171],
     left: [397, 365, 379, 378, 400, 377, 152, 288, 361, 323, 454, 367, 364, 394, 395, 369, 396],
@@ -246,7 +246,7 @@ export function buildRegionInstances(landmarks: readonly Landmark[]): RegionInst
   const instances: RegionInstance[] = []
 
   for (const region of ATLAS) {
-    const sides: Array<{ side: Side; indices: readonly number[] }> = region.symmetric
+    const sides: Array<{ side: Side; indices: readonly number[] }> = region.bilateral
       ? [
           { side: 'right', indices: region.right },
           { side: 'left', indices: region.left },

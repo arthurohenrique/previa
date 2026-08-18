@@ -209,11 +209,15 @@ create unique index if not exists sessions_local_image_ref_idx on public.session
 create table if not exists public.regions (
   id          text primary key check (id ~ '^[a-z][a-z0-9_]{2,40}$'),
   label       text not null,
-  symmetric   boolean not null default false,
+  -- `symmetric` seria o nome óbvio, e é palavra reservada no PostgreSQL
+  -- (`BETWEEN SYMMETRIC`): a criação da tabela falha com erro de sintaxe.
+  -- `bilateral` é o termo clínico correto de qualquer forma — a região tem par
+  -- esquerdo e direito.
+  bilateral   boolean not null default false,
   sort_order  smallint not null default 0
 );
 
-insert into public.regions (id, label, symmetric, sort_order) values
+insert into public.regions (id, label, bilateral, sort_order) values
   ('glabella',        'Glabela',           false,  10),
   ('frontal',         'Frontal',           false,  20),
   ('periorbital',     'Periorbital',       true,   30),
@@ -226,7 +230,7 @@ insert into public.regions (id, label, symmetric, sort_order) values
   ('jawline',         'Linha mandibular',  true,  100)
 on conflict (id) do update
   set label = excluded.label,
-      symmetric = excluded.symmetric,
+      bilateral = excluded.bilateral,
       sort_order = excluded.sort_order;
 
 create table if not exists public.applications (
