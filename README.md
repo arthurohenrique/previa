@@ -33,15 +33,67 @@ risco. Essa decisão molda toda a arquitetura — está registrada como D-01 em
 
 ## Começar
 
-Requisitos: Node 20.9+, pnpm 10, [Supabase CLI](https://supabase.com/docs/guides/cli).
-
 ```bash
-pnpm install                     # inclui a cópia do runtime WASM do MediaPipe
-cp .env.example .env.local       # preencha com as chaves do seu projeto
-supabase start                   # Postgres, Auth e Studio locais
-pnpm db:reset                    # aplica as migrations e o seed de duas clínicas
+pnpm install                # inclui a cópia do runtime WASM do MediaPipe
+cp .env.example .env.local
 pnpm dev
 ```
+
+### Banco, num projeto Supabase hospedado
+
+Um script só, idempotente: **[`supabase/setup.sql`](./supabase/setup.sql)**. Ele
+cria tipos, tabelas, helpers de RLS, todas as políticas, os gatilhos de auditoria
+e de imutabilidade, o pareamento do celular e o atlas de regiões semeado.
+
+1. SQL Editor do projeto → cole o arquivo inteiro → **Run**.
+2. Authentication → Users → **Add user** com e-mail e senha do profissional,
+   marcando *Auto Confirm User*.
+3. Volte ao SQL Editor e rode uma vez, com os seus dados:
+
+   ```sql
+   select public.previa_bootstrap(
+     'voce@suaclinica.com.br',   -- e-mail do usuário do passo 2
+     'Clínica Aurora',           -- nome da clínica
+     'Ana Ribeiro',              -- nome do profissional
+     'CRM',                      -- CRM, CRO, CRF, CRBM ou COREN
+     '123456'                    -- número de registro
+   );
+   ```
+
+   Cria a clínica se não existir e vincula o usuário a ela como admin. Rodar de
+   novo atualiza em vez de duplicar.
+
+4. Authentication → Providers → Email: desligue **Enable Sign Up**. O Prévia não
+   tem cadastro aberto; usuários são criados pela clínica.
+
+5. `.env.local`:
+
+   ```bash
+   NEXT_PUBLIC_SUPABASE_URL=https://<projeto>.supabase.co
+   NEXT_PUBLIC_SUPABASE_ANON_KEY=<anon key>
+   NEXT_PUBLIC_TERMS_VERSION=2026-08-01
+   ```
+
+Rodar o script mais de uma vez é seguro: tabelas e índices usam `if not exists`,
+tipos ficam em bloco que engole duplicata, políticas e gatilhos são derrubados
+antes de recriados, e o atlas reconcilia em vez de duplicar. Nenhum caminho
+apaga dado.
+
+Primeiro uso: cadastrar paciente → **registrar consentimento** → Nova prévia. A
+política de RLS recusa criar sessão sem consentimento vigente; é regra, não bug.
+
+### Banco, local
+
+Requisitos: [Supabase CLI](https://supabase.com/docs/guides/cli).
+
+```bash
+supabase start     # Postgres, Auth e Studio locais
+pnpm db:reset      # aplica as migrations e o seed de duas clínicas
+```
+
+As migrations em `supabase/migrations/` são a fonte para o ambiente local;
+`setup.sql` é a mesma coisa achatada num arquivo. `tests/setup-sql.test.ts`
+prende as duas para não divergirem.
 
 Usuários do seed local — senha `previa-dev-2026`:
 
