@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
+import { tryGetSupabaseEnv } from '@/lib/supabase/env'
 
 // Next 16: `middleware.ts` foi renomeado para `proxy.ts` e o export chama
 // `proxy`. O runtime é Node.js e não é configurável.
@@ -19,14 +20,13 @@ const PUBLIC_PATHS = ['/login', '/auth', '/captura', '/diagnostico']
 export async function proxy(request: NextRequest) {
   let response = NextResponse.next({ request })
 
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  const env = tryGetSupabaseEnv()
 
   // Sem env configurada não há sessão para renovar; deixa passar para que o
   // erro apareça na página, com mensagem útil, em vez de virar 500 opaco.
-  if (!url || !anonKey) return response
+  if (!env) return response
 
-  const supabase = createServerClient(url, anonKey, {
+  const supabase = createServerClient(env.url, env.key, {
     cookies: {
       getAll() {
         return request.cookies.getAll()

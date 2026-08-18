@@ -30,7 +30,11 @@ $$;
 comment on function public.current_clinic_id is
   'Clínica do usuário autenticado. Base de toda política de RLS.';
 
-revoke all on function public.current_clinic_id() from public;
-revoke all on function public.is_clinic_admin() from public;
+-- `from public` sozinho não basta: o Supabase concede EXECUTE a `anon` de forma
+-- explícita, por `alter default privileges`, e revogar de PUBLIC não desfaz
+-- concessão nominal. Sem citar `anon` aqui, o anônimo executa as duas — o que
+-- não vaza nada, porque `auth.uid()` é nulo para ele, mas contraria o desenho.
+revoke all on function public.current_clinic_id() from public, anon;
+revoke all on function public.is_clinic_admin() from public, anon;
 grant execute on function public.current_clinic_id() to authenticated;
 grant execute on function public.is_clinic_admin() to authenticated;

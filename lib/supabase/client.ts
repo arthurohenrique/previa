@@ -1,6 +1,7 @@
 'use client'
 
 import { createBrowserClient } from '@supabase/ssr'
+import { getSupabaseEnv } from './env'
 import type { Database } from './types'
 
 let cached: ReturnType<typeof createBrowserClient<Database>> | null = null
@@ -12,15 +13,7 @@ let cached: ReturnType<typeof createBrowserClient<Database>> | null = null
 export function getSupabaseBrowserClient() {
   if (cached) return cached
 
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-
-  if (!url || !anonKey) {
-    throw new Error(
-      'NEXT_PUBLIC_SUPABASE_URL e NEXT_PUBLIC_SUPABASE_ANON_KEY precisam estar definidas.',
-    )
-  }
-
-  cached = createBrowserClient<Database>(url, anonKey)
+  const { url, key } = getSupabaseEnv()
+  cached = createBrowserClient<Database>(url, key)
   return cached
 }

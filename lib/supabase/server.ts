@@ -2,6 +2,7 @@ import 'server-only'
 
 import { cookies } from 'next/headers'
 import { createServerClient } from '@supabase/ssr'
+import { getSupabaseEnv } from './env'
 import type { Database } from './types'
 
 /**
@@ -11,16 +12,9 @@ import type { Database } from './types'
 export async function getSupabaseServerClient() {
   const cookieStore = await cookies()
 
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  const { url, key } = getSupabaseEnv()
 
-  if (!url || !anonKey) {
-    throw new Error(
-      'NEXT_PUBLIC_SUPABASE_URL e NEXT_PUBLIC_SUPABASE_ANON_KEY precisam estar definidas.',
-    )
-  }
-
-  return createServerClient<Database>(url, anonKey, {
+  return createServerClient<Database>(url, key, {
     cookies: {
       getAll() {
         return cookieStore.getAll()

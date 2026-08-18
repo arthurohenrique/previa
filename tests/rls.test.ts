@@ -12,7 +12,9 @@ import type { Database } from '@/lib/supabase/types'
  */
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+// Aceita a chave publicável nova e o JWT anon legado — ver lib/supabase/env.ts.
+const anonKey =
+  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 const configured = Boolean(url && anonKey)
 
 const AURORA = { email: 'aurora@previa.test', password: 'previa-dev-2026' }
