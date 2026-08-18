@@ -13,6 +13,7 @@ import {
   type LocalApplication,
 } from '@/lib/db/dexie'
 import { getRegion, type RegionId, type Side } from '@/lib/face/atlas'
+import { newId } from '@/lib/id'
 import { analyzePhoto, warmupLandmarker } from '@/lib/face/landmarker'
 import type { FaceGeometry } from '@/lib/face/types'
 import { preparePhoto, type PreparedPhoto } from '@/lib/image/prepare'
@@ -161,7 +162,7 @@ export function TestBench() {
           return
         }
 
-        const localImageRef = crypto.randomUUID()
+        const localImageRef = newId()
 
         // A persistência é conveniência — recarregar devolve o trabalho — e
         // conveniência não derruba a sessão: há WebKits (navegação privada)

@@ -1,6 +1,7 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
+import { newId } from '@/lib/id'
 import { Button } from '@/components/ui/Button'
 
 /**
@@ -24,7 +25,7 @@ export function StartSessionButton({
       disabled={disabled}
       title={disabled ? 'Registre o consentimento antes de começar.' : undefined}
       onClick={() => {
-        const sessionId = crypto.randomUUID()
+        const sessionId = newId()
         router.push(`/sessao/${sessionId}?paciente=${patientId}`)
       }}
     >

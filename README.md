@@ -134,6 +134,33 @@ em `proxy.ts`. Registrado como D-20 em [`DECISIONS.md`](./DECISIONS.md).
 
 ---
 
+## Testar no celular
+
+Aponte o celular para a máquina de desenvolvimento, na mesma rede:
+
+```bash
+pnpm dev
+# o Next imprime o endereço de rede, algo como http://192.168.0.12:3000
+```
+
+As faixas privadas já estão liberadas em `allowedDevOrigins`
+(`next.config.ts`) — **sem isso o dev server responde 403 e a página abre sem
+JavaScript**. Trocar a configuração exige reiniciar o `pnpm dev`.
+
+O que funciona por HTTP na rede local: captura pela câmera do celular,
+detecção, simulação, antes/depois e o armazenamento local. O que **não**
+funciona, por decisão do navegador fora de HTTPS:
+
+- **service worker** — a PWA não instala e não guarda o modelo para uso
+  offline;
+- **captura pelo celular por WebRTC** (a seção abaixo) — `RTCPeerConnection` só
+  existe em contexto seguro.
+
+Para exercitar as duas, use um túnel HTTPS ou o ambiente publicado. O resto do
+produto foi verificado em contexto inseguro de propósito (D-24).
+
+---
+
 ## Fotografar pelo celular
 
 Quando a prévia é aberta num computador, a webcam do monitor não serve: não

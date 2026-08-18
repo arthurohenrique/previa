@@ -258,6 +258,38 @@ de tamanho fixo, e 1/4 da foto é a escolha deliberada de D-08.
 
 `e2e/warp.spec.ts` mede, e `tests/guardrails.test.ts` exige os dois `'inherit'`.
 
+### D-24 — O produto funciona fora de contexto seguro
+
+Testado no celular apontando para o computador — `http://192.168.x.x:3000` —,
+o app não fazia nada. Dois motivos, os dois invisíveis em `localhost`, que é
+contexto seguro por definição e por isso esconde a classe inteira de problema.
+
+**`crypto.randomUUID` não existe em contexto inseguro.** É API restrita a HTTPS
+e localhost. Toda foto e toda aplicação nasciam de um `crypto.randomUUID()`, e
+ali ele é `undefined`: o `TypeError` caía no `catch` e a interface dizia apenas
+que não foi possível preparar a foto. `lib/id.ts` passa a gerar o UUID v4 com
+`getRandomValues` — que existe em contexto inseguro — e com `Math.random` como
+último recurso. O formato continua UUID v4 porque o Postgres tem coluna `uuid`
+do outro lado; a fonte de aleatoriedade é que muda, e vale porque estes ids
+identificam linha, não segredo.
+
+**O dev server bloqueia origem cruzada.** O Next responde 403 em todo
+`/_next/*` pedido de um host que não está em `allowedDevOrigins`, e a página
+abre sem JavaScript nenhum. Testar no celular apontando para a máquina de
+desenvolvimento é o fluxo normal deste produto — webcam de monitor não serve
+para foto de rosto —, então as faixas privadas entram na lista:
+`192.168.*.*`, `10.*.*.*`, `172.*.*.*` e `*.local`. O casamento do Next é por
+segmento separado por ponto, com curinga: não aceita CIDR, e IP público
+continua bloqueado (verificado contra a própria função do Next).
+
+Verificado emulando Android Chrome contra o IP da rede: contexto inseguro,
+detecção completa, toque abrindo o painel e pixels mudando.
+
+Fica registrado o que **não** funciona sem HTTPS, por decisão do navegador:
+service worker (a PWA não instala e não guarda o modelo offline) e a captura
+pelo celular por WebRTC (D-16), que precisa de `RTCPeerConnection`. Para
+exercitar essas duas, um túnel HTTPS ou o ambiente publicado.
+
 ### D-23 — A detecção sobrevive ao WebKit
 
 Testada com uma foto de rosto de verdade, a detecção falhava em **todo**
@@ -594,6 +626,7 @@ Se não piorou, ele não volta.
 | 2026-08-14 | D-08 detalhado com a soma no shader; D-11 a D-14 e E-08 acrescentados durante a implementação do warp. | Engenharia |
 | 2026-08-14 | D-16 e E-09: captura pelo celular por WebRTC. **Emenda à regra de ouro (D-01)** — a foto passa a existir em dois aparelhos da clínica. | Engenharia |
 | 2026-08-14 | D-17 e D-18: regiões viram anéis, e precisão de fragmento explícita nos shaders. Correção de dois defeitos de render que só aparecem em navegador; bancada em `/diagnostico/render`. | Engenharia |
+| 2026-08-18 | D-24: no celular pelo IP da rede o app não fazia nada — `crypto.randomUUID` não existe fora de contexto seguro, e o dev server bloqueava origem cruzada. `lib/id.ts` e `allowedDevOrigins`. | Engenharia |
 | 2026-08-18 | D-23: a detecção falhava em todo Safari (runtime pedia `document` no worker). Canvas explícito, retry em CPU, fallback de main thread e foto gravada como bytes. Verificado com foto real nos dois motores. | Engenharia |
 | 2026-08-18 | D-22: a simulação não se via. Aplicação passa a nascer no núcleo da região, feather limitado pelo raio inscrito, intensidade linear. Medido em `e2e/simulacao.spec.ts`. | Engenharia |
 | 2026-08-18 | D-21: o painel de ajuste sai de cima da foto. Palco e controles viram irmãos num flex, com altura reservada para não reescalar a foto ao selecionar. Bancada em `/diagnostico/interface`. | Engenharia |

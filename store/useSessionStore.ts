@@ -11,6 +11,7 @@ import {
   type Side,
 } from '@/lib/face/atlas'
 import { applyIpdOffset, offsetToIpd } from '@/lib/face/scale'
+import { newId } from '@/lib/id'
 import type { FaceGeometry, Point2 } from '@/lib/face/types'
 import { clamp, clampRadius } from '@/lib/warp/clamps'
 import { MAX_APPLICATIONS } from '@/lib/warp/filters/constants'
@@ -132,7 +133,7 @@ export const useSessionStore = create<SessionState>()(
         )
 
         const application: SessionApplication = {
-          id: crypto.randomUUID(),
+          id: newId(),
           regionId: instance.region.id,
           side: instance.side,
           regionKey: instance.key,

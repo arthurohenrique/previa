@@ -21,6 +21,16 @@ const PERMISSIONS_POLICY = [
 const nextConfig: NextConfig = {
   reactStrictMode: true,
 
+  // Testar no celular apontando para o computador da clínica é o fluxo normal
+  // de desenvolvimento deste produto — a webcam de monitor não serve para foto
+  // de rosto. Sem liberar a origem, o dev server responde 403 para todo
+  // `/_next/*` vindo do IP da rede e a página abre sem JavaScript nenhum.
+  //
+  // Vale só em desenvolvimento; em produção o Next ignora esta chave.
+  // O casamento é por segmento separado por ponto, com curinga — não aceita
+  // CIDR. Faixas privadas e nomes .local do Bonjour.
+  allowedDevOrigins: ['192.168.*.*', '10.*.*.*', '172.*.*.*', '*.local'],
+
   // Sem isto o Turbopack sobe a árvore procurando um lockfile e adota o
   // diretório do usuário como raiz do projeto — o que muda o que entra no
   // bundle dependendo da máquina.
