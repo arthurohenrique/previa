@@ -225,6 +225,19 @@ pnpm dev                                       # num terminal
 E2E_BASE_URL=http://localhost:3000 pnpm exec playwright test render
 ```
 
+### Bancada de layout
+
+`/diagnostico/interface` monta o simulador de verdade com foto e geometria
+sintéticas, para medir uma coisa só: nenhum controle pode ficar por cima da foto.
+`e2e/interface-layout.spec.ts` mede nas duas orientações do iPad — interseção com
+o palco, tamanho do palco antes e depois de selecionar, e alvo de 44 pt em tudo
+que é tocável na barra.
+
+```bash
+pnpm dev
+E2E_BASE_URL=http://localhost:3000 pnpm exec playwright test interface-layout
+```
+
 ### Testes que precisam de ambiente
 
 - `tests/rls.test.ts` fala com o Supabase de verdade. Sem
@@ -243,7 +256,7 @@ app/page.tsx                raiz em modo teste: captura + simulação, sem login
 app/TestBench.tsx           o estado dessa tela solta (Dexie, sem Supabase)
 app/(auth)/login            entrada
 app/(app)/pacientes         lista, ficha e consentimento
-app/(app)/sessao/[id]       a tela do simulador
+app/(app)/sessao/[id]       a tela do simulador: palco e barra de controles
 app/(app)/presets           protocolos da clínica
 lib/face                    landmarker, atlas, hit-test, escala em DIP, qualidade
 lib/warp                    campo de deslocamento, shaders, máscaras, pipeline Pixi

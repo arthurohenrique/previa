@@ -424,110 +424,117 @@ export function Simulator({
   }, [applications, geometry, stageRect, stageSize.width])
 
   return (
-    <div className="relative h-full w-full overflow-hidden bg-background">
-      {/* Canvas do Pixi. O toque é tratado na camada de cima. */}
-      <div ref={stageRef} className="absolute inset-0" />
+    // Retrato empilha, paisagem põe a barra ao lado. Nos dois casos a foto fica
+    // num retângulo só dela: nenhum controle passa por cima do rosto (D-21).
+    <div className="flex h-full w-full flex-col overflow-hidden bg-background landscape:flex-row">
+      {/* O palco. Foto, anéis de região e marcadores — mais nada. */}
+      <div className="relative min-h-0 min-w-0 flex-1">
+        {/* Canvas do Pixi. O toque é tratado na camada de cima. */}
+        <div ref={stageRef} className="absolute inset-0" />
 
-      {/* Camada de interação e marcadores. */}
-      <div
-        ref={overlayRef}
-        className="absolute inset-0 touch-none"
-        onPointerDown={handleStagePointerDown}
-      >
-        {/* Posição e animação vivem em elementos separados de propósito: a
-            cascata anima `transform`, e uma animação com `fill-mode: both`
-            vence o estilo inline na cascata do CSS — o `transform: none` do
-            último quadro apagaria a posição e empilharia todos os pontos no
-            canto da tela. */}
-        {chips.map(({ instance, point, position }) => (
-          <span
-            key={instance.key}
-            className="absolute top-0 left-0"
-            style={{
-              transform: `translate(${position.x}px, ${position.y}px) translate(-50%, -50%)`,
-            }}
-          >
-            <button
-              type="button"
-              aria-label={`${instance.region.label}${
-                instance.side === 'center'
-                  ? ''
-                  : instance.side === 'left'
-                    ? ', lado esquerdo'
-                    : ', lado direito'
-              }. Aplicar ${TECHNIQUE_LABELS[activeTechnique].toLowerCase()}.`}
-              // A cascata sobe: mento primeiro, testa por último.
-              style={{ '--cascade-index': instance.region.cascadeOrder } as React.CSSProperties}
-              className="previa-cascade flex touch-44 items-center justify-center"
-              onPointerDown={(event) => {
-                event.stopPropagation()
-                addAt(instance, point)
+        {/* Camada de interação e marcadores. */}
+        <div
+          ref={overlayRef}
+          className="absolute inset-0 touch-none"
+          onPointerDown={handleStagePointerDown}
+        >
+          {/* Posição e animação vivem em elementos separados de propósito: a
+              cascata anima `transform`, e uma animação com `fill-mode: both`
+              vence o estilo inline na cascata do CSS — o `transform: none` do
+              último quadro apagaria a posição e empilharia todos os pontos no
+              canto da tela. */}
+          {chips.map(({ instance, point, position }) => (
+            <span
+              key={instance.key}
+              className="absolute top-0 left-0"
+              style={{
+                transform: `translate(${position.x}px, ${position.y}px) translate(-50%, -50%)`,
               }}
             >
-              {/* Anel, não cápsula com rótulo. Quinze rótulos sobre um rosto de
-                  poucas centenas de pixels cobrem o rosto. O nome vive no
-                  aria-label, aparece no painel ao selecionar, e todos aparecem
-                  de uma vez em "Nomes". */}
-              <span
-                aria-hidden="true"
-                className="block size-1.5 rounded-capsule border-2 border-label opacity-70"
-              />
-              {showLabels ? (
-                <span className="material pointer-events-none absolute top-full rounded-capsule px-1 text-caption whitespace-nowrap text-label">
-                  {instance.region.label}
-                </span>
-              ) : null}
-            </button>
-          </span>
-        ))}
+              <button
+                type="button"
+                aria-label={`${instance.region.label}${
+                  instance.side === 'center'
+                    ? ''
+                    : instance.side === 'left'
+                      ? ', lado esquerdo'
+                      : ', lado direito'
+                }. Aplicar ${TECHNIQUE_LABELS[activeTechnique].toLowerCase()}.`}
+                // A cascata sobe: mento primeiro, testa por último.
+                style={{ '--cascade-index': instance.region.cascadeOrder } as React.CSSProperties}
+                className="previa-cascade flex touch-44 items-center justify-center"
+                onPointerDown={(event) => {
+                  event.stopPropagation()
+                  addAt(instance, point)
+                }}
+              >
+                {/* Anel, não cápsula com rótulo. Quinze rótulos sobre um rosto de
+                    poucas centenas de pixels cobrem o rosto. O nome vive no
+                    aria-label, aparece na barra ao selecionar, e todos aparecem
+                    de uma vez em "Nomes". */}
+                <span
+                  aria-hidden="true"
+                  className="block size-1.5 rounded-capsule border-2 border-label opacity-70"
+                />
+                {showLabels ? (
+                  <span className="material pointer-events-none absolute top-full rounded-capsule px-1 text-caption whitespace-nowrap text-label">
+                    {instance.region.label}
+                  </span>
+                ) : null}
+              </button>
+            </span>
+          ))}
 
-        {markers.map(({ application, position }) => (
-          <button
-            key={application.id}
-            type="button"
-            aria-label={`Aplicação em ${application.regionId}, intensidade ${Math.round(
-              application.intensity * 100,
-            )} por cento`}
-            aria-pressed={application.id === selectedId}
-            style={{
-              transform: `translate(${position.x}px, ${position.y}px) translate(-50%, -50%)`,
-            }}
-            className="absolute top-0 left-0 flex touch-44 items-center justify-center rounded-capsule"
-            onPointerDown={(event) => startMarkerDrag(application, event)}
-          >
-            {/* O marcador aparece no dedo antes de o warp calcular: ele é DOM
-                e entra no mesmo commit do React, enquanto o campo só é
-                reconstruído no frame seguinte. Latência percebida é o produto. */}
-            <span
-              className={[
-                'block size-1.5 rounded-capsule',
-                application.id === selectedId
-                  ? 'bg-accent ring-2 ring-label'
-                  : 'bg-label opacity-80',
-              ].join(' ')}
-            />
-          </button>
-        ))}
+          {markers.map(({ application, position }) => (
+            <button
+              key={application.id}
+              type="button"
+              aria-label={`Aplicação em ${application.regionId}, intensidade ${Math.round(
+                application.intensity * 100,
+              )} por cento`}
+              aria-pressed={application.id === selectedId}
+              style={{
+                transform: `translate(${position.x}px, ${position.y}px) translate(-50%, -50%)`,
+              }}
+              className="absolute top-0 left-0 flex touch-44 items-center justify-center rounded-capsule"
+              onPointerDown={(event) => startMarkerDrag(application, event)}
+            >
+              {/* O marcador aparece no dedo antes de o warp calcular: ele é DOM
+                  e entra no mesmo commit do React, enquanto o campo só é
+                  reconstruído no frame seguinte. Latência percebida é o produto. */}
+              <span
+                className={[
+                  'block size-1.5 rounded-capsule',
+                  application.id === selectedId
+                    ? 'bg-accent ring-2 ring-label'
+                    : 'bg-label opacity-80',
+                ].join(' ')}
+              />
+            </button>
+          ))}
+        </div>
       </div>
 
-      {/* Barra superior. Material translúcido: o profissional continua vendo a
-          foto por baixo do controle. */}
-      <header className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between gap-1 p-1 safe-t safe-x">
-        {patientName ? (
-          <div className="pointer-events-auto flex items-center gap-0.5 rounded-capsule material px-0.5">
+      {/* A barra de controles. Superfície opaca de verdade, não vidro: ela não
+          cobre mais a foto, então não precisa deixar ver através. */}
+      <aside
+        aria-label="Controles"
+        className="flex shrink-0 flex-col gap-1 bg-elevated p-1 safe-b safe-x landscape:h-full landscape:w-34 landscape:safe-t"
+      >
+        {/* Uma linha só quando cabe, duas quando não cabe. Em paisagem a coluna
+            é estreita e isto vira pilha sozinho, sem variante de orientação. */}
+        <div className="flex flex-wrap items-center justify-end gap-0.5">
+          {patientName ? (
             <Link
               href="/pacientes"
-              className="flex touch-44 items-center justify-center px-1 text-subhead text-accent"
+              className="mr-auto flex min-w-0 touch-44 items-center gap-0.5 px-1 text-subhead"
             >
-              Pacientes
+              <span className="shrink-0 text-accent">Pacientes</span>
+              <span className="truncate text-label">{patientName}</span>
             </Link>
-            <span className="max-w-24 truncate px-0.5 text-subhead text-label">{patientName}</span>
-          </div>
-        ) : (
-          <span />
-        )}
+          ) : null}
 
-        <div className="pointer-events-auto flex items-center gap-0.5 rounded-capsule material px-0.5">
+          <div className="mr-auto flex items-center gap-0.5 rounded-capsule bg-fill-secondary px-0.5">
           <button
             type="button"
             aria-pressed={showLabels}
@@ -565,51 +572,17 @@ export function Simulator({
           >
             <IconCompare />
           </button>
-          <Button variant="plain" onClick={onRetake}>
+          </div>
+
+          <Button variant="plain" className="shrink-0 px-1" onClick={onRetake}>
             Refazer foto
           </Button>
         </div>
-      </header>
-
-      {/* Barra inferior: técnica ativa e ajuste do que está selecionado. */}
-      <footer className="pointer-events-none absolute inset-x-0 bottom-0 flex flex-col items-center gap-1 p-1 safe-b safe-x">
-        {notice ? (
-          <p
-            role="status"
-            className="pointer-events-auto rounded-capsule material px-1.5 py-0.5 text-subhead text-label"
-          >
-            {notice}
-          </p>
-        ) : null}
-
-        {selected ? (
-          <IntensityPanel
-            application={selected}
-            regionLabel={
-              regionInstances.find((instance) => instance.key === selected.regionKey)?.region
-                .label ?? selected.regionId
-            }
-            techniqueLabel={TECHNIQUE_LABELS[selected.technique]}
-            onLiveIntensity={(value) =>
-              push((resolved) =>
-                resolved.id === selected.id ? { ...resolved, intensity: value } : resolved,
-              )
-            }
-            onCommitIntensity={(value) => setIntensity(selected.id, value)}
-            onLiveRadius={(value) =>
-              push((resolved) =>
-                resolved.id === selected.id ? { ...resolved, radiusIpd: value } : resolved,
-              )
-            }
-            onCommitRadius={(value) => setRadius(selected.id, value)}
-            onRemove={() => removeApplication(selected.id)}
-          />
-        ) : null}
 
         <div
           role="radiogroup"
           aria-label="Técnica"
-          className="pointer-events-auto flex items-center gap-0.5 rounded-capsule material px-0.5"
+          className="flex flex-wrap items-center gap-0.5 rounded-lg bg-fill-secondary p-0.5"
         >
           {TECHNIQUE_ORDER.map((technique) => (
             <button
@@ -619,17 +592,56 @@ export function Simulator({
               aria-checked={technique === activeTechnique}
               onClick={() => setActiveTechnique(technique)}
               className={[
-                'flex touch-44 items-center justify-center rounded-capsule px-1.5 text-subhead',
-                technique === activeTechnique
-                  ? 'bg-accent text-accent-on'
-                  : 'text-label-secondary',
+                'flex grow basis-15 touch-44 items-center justify-center rounded-capsule px-1 text-center text-subhead',
+                technique === activeTechnique ? 'bg-accent text-accent-on' : 'text-label-secondary',
               ].join(' ')}
             >
               {TECHNIQUE_LABELS[technique]}
             </button>
           ))}
         </div>
-      </footer>
+
+        {/* Linha de recado sempre presente, mesmo vazia: se ela aparecesse e
+            sumisse, a barra mudaria de altura em retrato, e a foto inteira
+            mudaria de tamanho no meio do trabalho. */}
+        <p role="status" aria-live="polite" className="min-h-2.5 text-subhead text-label-secondary">
+          {notice}
+        </p>
+
+        {/* Mesma razão, mesma solução: o espaço do ajuste fica reservado, então
+            selecionar e desmarcar não mexe no tamanho da foto. */}
+        <div className="min-h-14 landscape:min-h-11">
+          {selected ? (
+            <IntensityPanel
+              application={selected}
+              regionLabel={
+                regionInstances.find((instance) => instance.key === selected.regionKey)?.region
+                  .label ?? selected.regionId
+              }
+              techniqueLabel={TECHNIQUE_LABELS[selected.technique]}
+              onLiveIntensity={(value) =>
+                push((resolved) =>
+                  resolved.id === selected.id ? { ...resolved, intensity: value } : resolved,
+                )
+              }
+              onCommitIntensity={(value) => setIntensity(selected.id, value)}
+              onLiveRadius={(value) =>
+                push((resolved) =>
+                  resolved.id === selected.id ? { ...resolved, radiusIpd: value } : resolved,
+                )
+              }
+              onCommitRadius={(value) => setRadius(selected.id, value)}
+              onRemove={() => removeApplication(selected.id)}
+            />
+          ) : (
+            <p className="text-subhead text-label-secondary">
+              Toque numa região do rosto para aplicar{' '}
+              {TECHNIQUE_LABELS[activeTechnique].toLowerCase()}. Toque num ponto já aplicado para
+              ajustar aqui.
+            </p>
+          )}
+        </div>
+      </aside>
 
       <CompareSheet
         open={compareOpen}

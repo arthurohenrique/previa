@@ -258,6 +258,31 @@ de tamanho fixo, e 1/4 da foto é a escolha deliberada de D-08.
 
 `e2e/warp.spec.ts` mede, e `tests/guardrails.test.ts` exige os dois `'inherit'`.
 
+### D-21 — O controle não fica por cima da foto
+
+O painel de ajuste abria flutuando sobre o rosto. No único momento em que o
+profissional precisa olhar o resultado — arrastando a intensidade — ele estava
+olhando para o painel. Material translúcido não resolve: ver a foto borrada por
+trás de um controle não é ver a foto.
+
+O palco e a barra de controles passam a ser irmãos num flex, não camadas
+empilhadas. Retrato empilha, paisagem põe a barra ao lado; nos dois casos a foto
+tem um retângulo só dela, e sobre ela só existe o que é a própria interação: os
+anéis de região e os marcadores.
+
+Duas alturas ficam reservadas na barra — a linha de recado e o espaço do ajuste.
+Sem isso, selecionar uma aplicação faria a barra crescer, a foto encolher e os
+anéis andarem debaixo do dedo que acabou de tocar neles. Reservar espaço vazio é
+mais barato do que reposicionar o rosto no meio do trabalho.
+
+O que a barra ganhou de graça: ela não precisa mais ser vidro. O vidro existia
+para deixar ver a foto por baixo do controle; sem nada por baixo, a superfície é
+opaca.
+
+`e2e/interface-layout.spec.ts` mede as três propriedades — nenhuma interseção com
+o palco, o palco não muda de tamanho ao selecionar, todo alvo com 44 pt — nas duas
+orientações, sobre a bancada `/diagnostico/interface`.
+
 ### D-20 — Em teste, a raiz é o simulador e não há porteiro
 
 O produto tem duas metades com exigências opostas. Foto, detecção, warp e render
@@ -490,6 +515,7 @@ Se não piorou, ele não volta.
 | 2026-08-14 | D-08 detalhado com a soma no shader; D-11 a D-14 e E-08 acrescentados durante a implementação do warp. | Engenharia |
 | 2026-08-14 | D-16 e E-09: captura pelo celular por WebRTC. **Emenda à regra de ouro (D-01)** — a foto passa a existir em dois aparelhos da clínica. | Engenharia |
 | 2026-08-14 | D-17 e D-18: regiões viram anéis, e precisão de fragmento explícita nos shaders. Correção de dois defeitos de render que só aparecem em navegador; bancada em `/diagnostico/render`. | Engenharia |
+| 2026-08-18 | D-21: o painel de ajuste sai de cima da foto. Palco e controles viram irmãos num flex, com altura reservada para não reescalar a foto ao selecionar. Bancada em `/diagnostico/interface`. | Engenharia |
 | 2026-08-18 | D-20: em teste, a raiz vira a tela de captura e simulação e o `proxy.ts` para de redirecionar para o login. Nada de RLS mudou. | Engenharia |
 | 2026-08-14 | D-19 e a nota de proporção em D-08: dois defeitos achados medindo pixel. O deslocamento passava 32% do teto da região, e os filtros rodavam a metade da resolução do aparelho. Bancada em `/diagnostico/warp` e `e2e/warp.spec.ts`. | Engenharia |
 
