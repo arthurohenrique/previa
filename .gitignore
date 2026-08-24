@@ -20,3 +20,6 @@ Thumbs.db
 *.tsbuildinfo
 next-env.d.ts
 .vercel
+
+# modelo generativo local (~2,2GB) - baixar com scripts/download-generative-model.ps1
+public/models/generative/

@@ -57,21 +57,24 @@ const MOUTH_AXIS = [13, 14] // linha interna da boca
 const CHIN_ANCHOR = [152, 175, 199]
 
 export const REGION_DEFORM: Record<RegionId, RegionDeformParams> = {
+  // Ganhos em nível clínico: preenchimento real muda o lábio ~10–30%.
+  // Acima disso o warp expõe textura esticada e lê-se como distorção —
+  // a percepção de volume vem do shading, não de deslocamento bruto.
   'labio-superior': {
     kind: 'line-scale',
     maskClasses: [FACE_CLASSES.u_lip],
     axisIndices: MOUTH_AXIS,
-    verticalGain: 0.9,
-    horizontalGain: 0.12,
-    maxDeltaFactor: 0.14,
+    verticalGain: 0.35,
+    horizontalGain: 0.06,
+    maxDeltaFactor: 0.08,
   },
   'labio-inferior': {
     kind: 'line-scale',
     maskClasses: [FACE_CLASSES.l_lip],
     axisIndices: MOUTH_AXIS,
-    verticalGain: 1.0,
-    horizontalGain: 0.1,
-    maxDeltaFactor: 0.14,
+    verticalGain: 0.4,
+    horizontalGain: 0.05,
+    maxDeltaFactor: 0.08,
   },
   filtro: {
     kind: 'translate',
@@ -216,7 +219,7 @@ export function computeRegionField(
   // Blur proporcional ao rosto na resolução da máscara: borda suave e uma
   // faixa de transição que acompanha o vermelhão para fora.
   const mapScalePx = (scaleUv * (map.width + map.height)) / 2
-  const regionBlur = Math.max(2, Math.round(mapScalePx * 0.09))
+  const regionBlur = Math.max(2, Math.round(mapScalePx * 0.05))
 
   const faceAlpha = smoothClassAlpha(map, FACE_CONFINEMENT_CLASSES, Math.max(2, Math.round(mapScalePx * 0.03)))
   const regionAlpha =
@@ -272,7 +275,10 @@ export function computeRegionField(
     let dy = 0
 
     if (params.kind === 'line-scale' && axis !== null && regionAlpha !== null) {
-      const weight = sampleAlpha(regionAlpha, map.width, map.height, u, v)
+      // Peso ao quadrado: concentra o movimento dentro do vermelhão e reduz
+      // o arrasto da pele/barba vizinha na faixa de transição.
+      const alphaSample = sampleAlpha(regionAlpha, map.width, map.height, u, v)
+      const weight = alphaSample * alphaSample
       if (weight < 0.01) continue
       // Eversão: escala a partir da linha da boca — a linha fica parada,
       // o vermelhão avança; o alpha borrado leva junto a borda da pele.

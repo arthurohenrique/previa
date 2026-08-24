@@ -73,6 +73,35 @@ se movem juntos). O modelo atual:
 
 Calibração por região em `src/lib/deform/field.ts` (`REGION_DEFORM`).
 
+### Prévia realista — IA generativa local (Fase 5)
+
+Emenda à restrição nº 3 (decisão do dono do produto em 2026-08-24): geração
+por difusão é permitida **somente local e contida**. Pipeline: o warp
+determinístico serve de guia geométrico → recorte quadrado da região ativa
+(512px) → **img2img com LCM Dreamshaper v7 ONNX** (WebGPU, 6 passos, força
+proporcional à intensidade) → composição de volta **apenas dentro da máscara**
+com borda em pluma — fora dela o pixel é bit a bit o original. Nada sai do
+dispositivo; sem WebGPU o recurso fica indisponível e o motor determinístico
+segue como fallback. O modelo (~2,2GB) não é versionado: rode
+`scripts/download-generative-model.ps1` uma vez por ambiente.
+COOP/COEP habilitados em `next.config.ts` (SharedArrayBuffer para o ORT
+multithread).
+
+Medido em 2026-08-24 (Intel Gen-9 iGPU, WebGPU): carga do pipeline ~28s
+(uma vez por sessão), geração completa ~140s. GPU dedicada deve reduzir isso
+substancialmente; sem WebGPU o recurso se declara indisponível.
+
+**Patches de dependência** (`patches/`, aplicados via pnpm):
+- `@aislamov/diffusers.js`: (1) fetch local direto sem cache IndexedDB (o
+  `put` de 1,6GB aborta); (2) fallback WebGPU→WASM na criação de sessão;
+  (3) API `externalData` do onnxruntime-web padrão; (4) reconstrução de
+  tensors nativos no `Session.run`.
+- `@xenova/transformers` (pinado em 2.6.2 — API de tokenizer que o
+  diffusers.js usa): guard no `isEmpty` contra `Object.keys(undefined)`
+  sob Turbopack.
+- Override pnpm: `@aislamov/onnxruntime-web64` → `onnxruntime-web` padrão
+  (o fork exige WASM Memory64, que depende de flag de navegador).
+
 ### Assets locais
 
 - `public/models/wasm/` — WASM do MediaPipe (copiado de `node_modules`).
@@ -108,9 +137,15 @@ src/
 | 2 — Landmarks (478 pontos, overlay de debug) | ✅ inferência 40–66ms desktop |
 | 2.5 — Segmentação (portão de decisão) | ✅ portão acionado → landmarks por padrão |
 | 3 — Mapa anatômico e interação | ✅ |
-| 4 — Motor de deformação | ✅ 60fps no arrasto |
+| 4 — Motor de deformação | ✅ 60fps no arrasto; modelo anatômico + shading |
+| 5 — Prévia realista (IA generativa local) | ✅ carga ~28s, geração ~140s em iGPU Gen-9 |
 | Exportação antes/depois (PNG/PDF + marca d'água) | pendente |
 | Testes em Safari iOS e Chrome Android | pendente (validado só em Chromium desktop) |
+
+Decisão registrada (2026-08-24): o processamento permanece 100% no dispositivo.
+Vercel (ou qualquer hospedagem) serve apenas os estáticos — não há GPU em
+serverless, e mover a foto para servidor violaria a restrição de privacidade.
+Alternativas de nuvem foram avaliadas e recusadas pelo dono do produto.
 
 ## Fotos de teste
 

@@ -1,0 +1,147 @@
+diff --git a/dist/index.esm.js b/dist/index.esm.js
+index 2ff6511c929e086e29920123f5ec29372cea130d..2772539e3f5db7ae852c3f7665f921b53f45720f 100644
+--- a/dist/index.esm.js
++++ b/dist/index.esm.js
+@@ -1,4 +1,4 @@
+-// src/hub/browser.ts
++﻿// src/hub/browser.ts
+ import { downloadFile } from "@huggingface/hub";
+ 
+ // src/hub/indexed-db.ts
+@@ -341,14 +341,34 @@ var Session = class _Session {
+         ...weightsParams
+       };
+     });
+-    const session = ONNX.InferenceSession.create(arg, {
+-      ...sessionOptions,
+-      executionProviders
+-    });
+-    return new _Session(await session, config);
++    const externalDataEntry = weightsPathOrBuffer ? [{
++      data: weightsPathOrBuffer instanceof ArrayBuffer ? new Uint8Array(weightsPathOrBuffer) : weightsPathOrBuffer,
++      path: (weightsFilename || "").split("/").pop()
++    }] : void 0;
++    const baseOptions = externalDataEntry ? { ...sessionOptions, externalData: externalDataEntry } : { ...sessionOptions };
++    delete baseOptions.executionProviders;
++    let session;
++    try {
++      session = await ONNX.InferenceSession.create(arg, {
++        ...baseOptions,
++        executionProviders: ["webgpu"]
++      });
++    } catch (e) {
++      console.warn("[diffusers patch] EP webgpu falhou:", e && e.message ? e.message : e, "- tentando wasm");
++      session = await ONNX.InferenceSession.create(arg, {
++        ...baseOptions,
++        executionProviders: ["wasm"]
++      });
++    }
++    return new _Session(session, config);
+   }
+   async run(inputs) {
+-    const result = await this.session.run(inputs);
++    const converted = {};
++    for (const key of Object.keys(inputs)) {
++      const value = inputs[key];
++      converted[key] = value && value.type && value.data && value.dims ? new ONNX.Tensor(value.type, value.data, value.dims) : value;
++    }
++    const result = await this.session.run(converted);
+     return replaceTensors(result);
+   }
+   release() {
+@@ -516,6 +536,22 @@ function getCacheKey(modelRepoOrPath, fileName, revision) {
+ async function getModelFile2(modelRepoOrPath, fileName, fatal = true, options = {}) {
+   const revision = options.revision || "main";
+   const cachePath = getCacheKey(modelRepoOrPath, fileName, revision);
++  // PATCH: cacheDir local -> fetch direto, sem IndexedDB (put de 1,6GB aborta).
++  if (cacheDir) {
++    const localResponse = await fetch(cachePath);
++    const localOk = localResponse && localResponse.body && localResponse.status === 200 && !localResponse.headers.get("content-type")?.startsWith("text/html");
++    if (localOk) {
++      const localBuffer = await readResponseToBuffer(localResponse, options.progressCallback, fileName);
++      if (options.returnText) {
++        return new TextDecoder("utf-8").decode(localBuffer);
++      }
++      return localBuffer;
++    }
++    if (fatal) {
++      throw new Error(`Arquivo local ausente: ${cachePath}`);
++    }
++    return null;
++  }
+   const cache = new DbCache();
+   await cache.init();
+   const cachedData = await cache.retrieveFile(cachePath, options.progressCallback, fileName);
+diff --git a/dist/index.js b/dist/index.js
+index 395fd43d59a5ffb2be8c862b716e8049c6c6ff3e..084d5a3c262688d0807be34e9483b736e1b4af2d 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -1,4 +1,4 @@
+-(() => {
++﻿(() => {
+   var __create = Object.create;
+   var __defProp = Object.defineProperty;
+   var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+@@ -372,14 +372,34 @@
+           ...weightsParams
+         };
+       });
+-      const session = ONNX.InferenceSession.create(arg, {
+-        ...sessionOptions,
+-        executionProviders
++      const externalDataEntry = weightsPathOrBuffer ? [{
++      data: weightsPathOrBuffer instanceof ArrayBuffer ? new Uint8Array(weightsPathOrBuffer) : weightsPathOrBuffer,
++      path: (weightsFilename || "").split("/").pop()
++    }] : void 0;
++    const baseOptions = externalDataEntry ? { ...sessionOptions, externalData: externalDataEntry } : { ...sessionOptions };
++    delete baseOptions.executionProviders;
++    let session;
++    try {
++      session = await ONNX.InferenceSession.create(arg, {
++        ...baseOptions,
++        executionProviders: ["webgpu"]
++      });
++    } catch (e) {
++      console.warn("[diffusers patch] EP webgpu falhou:", e && e.message ? e.message : e, "- tentando wasm");
++      session = await ONNX.InferenceSession.create(arg, {
++        ...baseOptions,
++        executionProviders: ["wasm"]
+       });
+-      return new _Session(await session, config);
++    }
++    return new _Session(session, config);
+     }
+     async run(inputs) {
+-      const result = await this.session.run(inputs);
++      const converted = {};
++      for (const key of Object.keys(inputs)) {
++        const value = inputs[key];
++        converted[key] = value && value.type && value.data && value.dims ? new ONNX.Tensor(value.type, value.data, value.dims) : value;
++      }
++      const result = await this.session.run(converted);
+       return replaceTensors(result);
+     }
+     release() {
+@@ -547,6 +567,22 @@
+   async function getModelFile2(modelRepoOrPath, fileName, fatal = true, options = {}) {
+     const revision = options.revision || "main";
+     const cachePath = getCacheKey(modelRepoOrPath, fileName, revision);
++  // PATCH: cacheDir local -> fetch direto, sem IndexedDB (put de 1,6GB aborta).
++  if (cacheDir) {
++    const localResponse = await fetch(cachePath);
++    const localOk = localResponse && localResponse.body && localResponse.status === 200 && !localResponse.headers.get("content-type")?.startsWith("text/html");
++    if (localOk) {
++      const localBuffer = await readResponseToBuffer(localResponse, options.progressCallback, fileName);
++      if (options.returnText) {
++        return new TextDecoder("utf-8").decode(localBuffer);
++      }
++      return localBuffer;
++    }
++    if (fatal) {
++      throw new Error(`Arquivo local ausente: ${cachePath}`);
++    }
++    return null;
++  }
+     const cache = new DbCache();
+     await cache.init();
+     const cachedData = await cache.retrieveFile(cachePath, options.progressCallback, fileName);

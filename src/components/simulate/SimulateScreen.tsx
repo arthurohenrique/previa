@@ -7,8 +7,12 @@ import DeformCanvas from './DeformCanvas'
 import LandmarkOverlay from './LandmarkOverlay'
 import MaskOverlay from './MaskOverlay'
 import RegionHighlight from './RegionHighlight'
-import { classifyPoint, REGIONS } from '@/lib/anatomy'
+import { classifyPoint, REGIONS, type RegionId } from '@/lib/anatomy'
 import { canRedo, canUndo } from '@/lib/deform/history'
+import {
+  generateRealisticPreview,
+  type GenerationProgress,
+} from '@/lib/generative/client'
 import { analyzeFace } from '@/lib/landmarker'
 import { QUALITY_MESSAGES, type QualityIssue } from '@/lib/quality'
 import { segmentPhoto } from '@/lib/segmentation/client'
@@ -96,6 +100,64 @@ export default function SimulateScreen() {
   const [fps, setFps] = useState<number | null>(null)
   /** Durante o arrasto do slider o destaque some para o resultado aparecer. */
   const [adjusting, setAdjusting] = useState(false)
+
+  // Prévia realista (Fase 5): geração local sob demanda.
+  const capabilities = useSession((s) => s.capabilities)
+  const extractRef = useRef<(() => HTMLCanvasElement | null) | null>(null)
+  const [genStatus, setGenStatus] = useState<'idle' | 'rodando' | 'erro'>('idle')
+  const [genLabel, setGenLabel] = useState('')
+  const [resultUrl, setResultUrl] = useState<string | null>(null)
+  const [showResult, setShowResult] = useState(false)
+
+  const describeProgress = (progress: GenerationProgress): string => {
+    switch (progress.stage) {
+      case 'preparando':
+        return 'Preparando o recorte…'
+      case 'carregando-modelo':
+        return `Carregando o modelo… ${Math.round(progress.progress * 100)}%`
+      case 'gerando':
+        return `Gerando (passo ${progress.step}/${progress.total})…`
+      case 'compondo':
+        return 'Compondo o resultado…'
+    }
+  }
+
+  const handleGenerate = async () => {
+    if (analysis === null || segmentation === null) return
+    const extract = extractRef.current
+    const deformedCanvas = extract?.()
+    if (deformedCanvas === null || deformedCanvas === undefined) return
+    const activeRegions = (Object.keys(deformations) as RegionId[])
+      .map((region) => ({ region, intensity: deformations[region] ?? 0 }))
+      .filter((entry) => entry.intensity > 0)
+    if (activeRegions.length === 0) return
+
+    setGenStatus('rodando')
+    setGenLabel('Preparando…')
+    try {
+      const result = await generateRealisticPreview({
+        deformedCanvas,
+        map: segmentation.map,
+        landmarks: analysis.landmarks,
+        activeRegions,
+        onProgress: (progress) => setGenLabel(describeProgress(progress)),
+      })
+      const blob = await new Promise<Blob>((resolve, reject) =>
+        result.toBlob(
+          (value) => (value ? resolve(value) : reject(new Error('toBlob falhou'))),
+          'image/jpeg',
+          0.95,
+        ),
+      )
+      if (resultUrl) URL.revokeObjectURL(resultUrl)
+      setResultUrl(URL.createObjectURL(blob))
+      setShowResult(true)
+      setGenStatus('idle')
+    } catch (error) {
+      console.error('[prévia realista]', error)
+      setGenStatus('erro')
+    }
+  }
 
   // Sem foto na sessão não há o que simular.
   useEffect(() => {
@@ -249,11 +311,34 @@ export default function SimulateScreen() {
               profile={effectiveProfile}
               rect={rect}
               onFps={setFps}
+              extractRef={extractRef}
             />
           )}
 
+        {showResult && resultUrl !== null && rect !== null && (
+          <div
+            className="pointer-events-none absolute"
+            style={{
+              left: rect.left,
+              top: rect.top,
+              width: rect.width,
+              height: rect.height,
+            }}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element -- object URL local */}
+            <img
+              src={resultUrl}
+              alt="Prévia realista gerada localmente"
+              className="h-full w-full"
+            />
+            <span className="absolute bottom-2 right-2 rounded-md bg-zinc-950/70 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-zinc-100">
+              Simulação ilustrativa
+            </span>
+          </div>
+        )}
+
         {status === 'ok' && segmentation !== null && analysis !== null &&
-          activeRegion !== null && rect !== null && !adjusting && (
+          activeRegion !== null && rect !== null && !adjusting && !showResult && (
             <RegionHighlight
               region={activeRegion}
               map={segmentation.map}
@@ -347,9 +432,10 @@ export default function SimulateScreen() {
                     max={100}
                     step={1}
                     value={Math.round((deformations[activeRegion] ?? 0) * 100)}
-                    onChange={(e) =>
+                    onChange={(e) => {
+                      setShowResult(false) // resultado gerado ficou defasado
                       previewDeformation(activeRegion, Number(e.target.value) / 100)
-                    }
+                    }}
                     onPointerDown={() => setAdjusting(true)}
                     onPointerUp={() => {
                       setAdjusting(false)
@@ -401,6 +487,59 @@ export default function SimulateScreen() {
                 Zerar
               </button>
             </div>
+
+            <section aria-labelledby="previa-realista" className="flex flex-col gap-2">
+              <h2
+                id="previa-realista"
+                className="text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400"
+              >
+                Prévia realista
+              </h2>
+
+              {capabilities?.webgpu !== true ? (
+                <p className="rounded-xl bg-zinc-100 px-3 py-2 text-xs text-zinc-500 dark:bg-zinc-900 dark:text-zinc-400">
+                  Indisponível neste aparelho (exige WebGPU). O ajuste
+                  determinístico acima continua valendo.
+                </p>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => void handleGenerate()}
+                    disabled={
+                      genStatus === 'rodando' ||
+                      Object.values(deformations).every((v) => !v)
+                    }
+                    className="flex min-h-11 items-center justify-center rounded-xl bg-teal-700 px-4 text-sm font-semibold text-white transition hover:bg-teal-600 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-teal-400 dark:text-zinc-950 dark:hover:bg-teal-300"
+                  >
+                    {genStatus === 'rodando' ? genLabel : 'Gerar prévia realista'}
+                  </button>
+                  {genStatus === 'erro' && (
+                    <p
+                      role="alert"
+                      className="rounded-xl border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200"
+                    >
+                      Falha na geração local. O ajuste determinístico continua
+                      disponível.
+                    </p>
+                  )}
+                  {resultUrl !== null && (
+                    <button
+                      type="button"
+                      onClick={() => setShowResult((value) => !value)}
+                      className={secondaryButton}
+                    >
+                      {showResult ? 'Ver ajuste de malha' : 'Ver prévia realista'}
+                    </button>
+                  )}
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                    Gerada neste aparelho, apenas na região ajustada — o resto
+                    da foto permanece intocado. Ajustar o slider novamente
+                    exige nova geração.
+                  </p>
+                </>
+              )}
+            </section>
 
             <dl className="flex flex-col gap-1 rounded-xl bg-zinc-100 p-3 text-sm dark:bg-zinc-900">
               <div className="flex justify-between">

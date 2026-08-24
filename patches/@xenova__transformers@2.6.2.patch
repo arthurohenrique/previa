@@ -1,0 +1,18 @@
+diff --git a/src/env.js b/src/env.js
+index e627a9c2e0c8dc708d8c3b0ffb29af955bb69fa7..8bf3960b08c8319babfe91d36f2b50ffc1e918b5 100644
+--- a/src/env.js
++++ b/src/env.js
+@@ -1,4 +1,4 @@
+-/**
++﻿/**
+  * @file Module used to configure Transformers.js.
+  * 
+  * **Example:** Disable remote models.
+@@ -122,6 +122,6 @@ export const env = {
+  * @private
+  */
+ function isEmpty(obj) {
+-    return Object.keys(obj).length === 0;
++    return !obj || Object.keys(obj).length === 0;
+ }
+ 

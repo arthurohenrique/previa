@@ -2,9 +2,10 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { Application, MeshSimple, Texture } from 'pixi.js'
-import type { RegionId } from '@/lib/anatomy'
+import { interocularDistance, type RegionId } from '@/lib/anatomy'
 import { composeVertices, computeRegionField, type DeformMap } from '@/lib/deform/field'
 import { buildGridMesh, MESH_COLUMNS, type DeformMesh } from '@/lib/deform/mesh'
+import { buildShadingSource } from '@/lib/deform/shading'
 import type { ExecutionProfile } from '@/lib/profile'
 import type { Point2 } from '@/lib/quality'
 import type { LabelMap } from '@/lib/segmentation/mask'
@@ -22,6 +23,14 @@ interface DeformCanvasProps {
   rect: { left: number; top: number; width: number; height: number }
   /** FPS do ticker do Pixi, reportado ~2×/s para o painel de debug. */
   onFps?: (fps: number) => void
+  /** Recebe uma função que extrai o frame atual (foto deformada) como canvas. */
+  extractRef?: React.MutableRefObject<(() => HTMLCanvasElement | null) | null>
+}
+
+interface RegionShading {
+  highlight: MeshSimple
+  shadow: MeshSimple
+  strength: number
 }
 
 interface PixiState {
@@ -29,6 +38,8 @@ interface PixiState {
   simpleMesh: MeshSimple
   mesh: DeformMesh
   fields: Map<RegionId, Float32Array>
+  /** Realce/meia-sombra por região — a pista de volume do preenchimento. */
+  shading: Map<RegionId, RegionShading>
 }
 
 /**
@@ -46,6 +57,7 @@ export default function DeformCanvas({
   profile,
   rect,
   onFps,
+  extractRef,
 }: DeformCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [pixi, setPixi] = useState<PixiState | null>(null)
@@ -97,7 +109,7 @@ export default function DeformCanvas({
       instance.canvas.style.pointerEvents = 'none'
       container.appendChild(instance.canvas)
 
-      setPixi({ app: instance, simpleMesh, mesh, fields: new Map() })
+      setPixi({ app: instance, simpleMesh, mesh, fields: new Map(), shading: new Map() })
     })()
 
     return () => {
@@ -128,13 +140,63 @@ export default function DeformCanvas({
           computeRegionField(pixi.mesh, landmarks, region, segmentationMap),
         )
       }
+      if (!pixi.shading.has(region)) {
+        // Camadas de luz: as MESMAS fontes do campo (máscara/elipse) viram
+        // um realce "screen" e uma meia-sombra "multiply" — a modulação de
+        // luminância que faz o warp ler como volume, sem inventar pixels.
+        const source = buildShadingSource(region, landmarks, segmentationMap)
+        const canvas = document.createElement('canvas')
+        canvas.width = source.width
+        canvas.height = source.height
+        const context = canvas.getContext('2d')
+        if (context !== null) {
+          context.putImageData(
+            // Cópia: ImageData exige backing ArrayBuffer (não ArrayBufferLike).
+            new ImageData(new Uint8ClampedArray(source.pixels), source.width, source.height),
+            0,
+            0,
+          )
+        }
+        const texture = Texture.from(canvas)
+        const offsetPx =
+          interocularDistance(landmarks) *
+          ((pixi.mesh.width + pixi.mesh.height) / 2) *
+          0.05
+
+        const makeLayer = (tint: number, blend: 'screen' | 'multiply', y: number) => {
+          const layer = new MeshSimple({
+            texture,
+            vertices: pixi.mesh.vertices.slice(),
+            uvs: pixi.mesh.uvs.slice(),
+            indices: pixi.mesh.indices.slice(),
+          })
+          layer.autoUpdate = true
+          layer.blendMode = blend
+          layer.tint = tint
+          layer.alpha = 0
+          layer.position.y = y
+          pixi.app.stage.addChild(layer)
+          return layer
+        }
+
+        // Realce sobe levemente (ápice do volume); meia-sombra desce (base).
+        const highlight = makeLayer(0xffffff, 'screen', -offsetPx * 0.35)
+        const shadow = makeLayer(0x9a9a9a, 'multiply', offsetPx * 0.7)
+        pixi.shading.set(region, { highlight, shadow, strength: source.strength })
+      }
     }
-    composeVertices(
-      pixi.mesh.vertices,
-      pixi.fields,
-      deformations,
-      pixi.simpleMesh.vertices as Float32Array,
-    )
+
+    const output = pixi.simpleMesh.vertices as Float32Array
+    composeVertices(pixi.mesh.vertices, pixi.fields, deformations, output)
+
+    // As camadas de luz acompanham a malha deformada e escalam com o slider.
+    for (const [region, layers] of pixi.shading) {
+      const intensity = deformations[region] ?? 0
+      ;(layers.highlight.vertices as Float32Array).set(output)
+      ;(layers.shadow.vertices as Float32Array).set(output)
+      layers.highlight.alpha = intensity * layers.strength
+      layers.shadow.alpha = intensity * layers.strength * 0.45
+    }
   }, [pixi, deformations, landmarks, segmentationMap])
 
   // Medidor de FPS para o painel de debug.
@@ -143,6 +205,20 @@ export default function DeformCanvas({
     const interval = setInterval(() => onFps(pixi.app.ticker.FPS), 500)
     return () => clearInterval(interval)
   }, [pixi, onFps])
+
+  // Extração do frame deformado (guia geométrico da prévia realista).
+  useEffect(() => {
+    if (extractRef === undefined) return
+    if (pixi === null) {
+      extractRef.current = null
+      return
+    }
+    extractRef.current = () =>
+      pixi.app.renderer.extract.canvas(pixi.app.stage) as HTMLCanvasElement
+    return () => {
+      extractRef.current = null
+    }
+  }, [pixi, extractRef])
 
   return <div ref={containerRef} className="pointer-events-none absolute inset-0" />
 }

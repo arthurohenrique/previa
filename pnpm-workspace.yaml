@@ -1,0 +1,10 @@
+# O fork onnxruntime-web64 exige WASM Memory64 (flag de navegador) — troca
+# pelo onnxruntime-web padrão, mesma versão dos binários em /models/ort.
+overrides:
+  '@aislamov/onnxruntime-web64': npm:onnxruntime-web@1.26.0-dev.20260416-b7804b056c
+  # diffusers.js usa API de tokenizer removida depois do transformers 2.6.x
+  '@xenova/transformers': 2.6.2
+
+patchedDependencies:
+  '@aislamov/diffusers.js': patches/@aislamov__diffusers.js.patch
+  '@xenova/transformers@2.6.2': patches/@xenova__transformers@2.6.2.patch

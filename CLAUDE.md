@@ -51,10 +51,14 @@ Regras derivadas disso, todas obrigatórias:
 2. MODELOS LOCAIS: todos os pesos de IA e binários WASM são servidos do próprio
    domínio, a partir de /public/models. Proibido carregar de CDN do Google, do
    Hugging Face Hub ou de qualquer terceiro em tempo de execução.
-3. SEM IA GENERATIVA: proibido Stable Diffusion, inpainting por difusão ou qualquer
-   modelo que invente pixels. A IA apenas percebe (onde está cada estrutura do rosto);
-   a transformação é determinística, feita por deformação de malha. Motivo: modelos
-   generativos alucinam e o contexto é clínico.
+3. IA GENERATIVA SOMENTE LOCAL E CONTIDA (emenda de 2026-08-24, decisão do dono
+   do produto): difusão/img2img é permitida DESDE QUE (a) rode inteiramente no
+   navegador (WebGPU) — nenhum pixel sai do dispositivo; (b) atue apenas dentro
+   da região mascarada pela segmentação, com o warp determinístico como guia
+   geométrico e composição com borda suavizada — o resto da foto permanece
+   pixel-idêntico; (c) o resultado seja sempre rotulado como simulação
+   ilustrativa. Em dispositivo sem WebGPU o recurso fica indisponível e o
+   motor determinístico é o fallback. Nuvem generativa continua proibida.
 4. LGPD: a imagem vive em memória e é descartada ao encerrar a sessão. EXIF, incluindo
    GPS, é removido logo após a captura. Persistência só existe com consentimento
    explícito, e não faz parte das fases iniciais.
