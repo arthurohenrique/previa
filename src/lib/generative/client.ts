@@ -33,6 +33,25 @@ export type GenerationProgress =
   | { stage: 'gerando'; step: number; total: number }
   | { stage: 'compondo' }
 
+/**
+ * O modelo não é versionado (2,2GB): dev baixa via script, produção serve
+ * via rewrite para storage próprio. Antes de gerar, confirmamos que ele
+ * está de fato acessível — sem isso o erro vira um 404 críptico no worker.
+ */
+export async function checkModelAvailable(): Promise<boolean> {
+  try {
+    const response = await fetch('/models/generative/model_index.json', {
+      method: 'HEAD',
+    })
+    return (
+      response.ok &&
+      !(response.headers.get('content-type') ?? '').startsWith('text/html')
+    )
+  } catch {
+    return false
+  }
+}
+
 let worker: Worker | null = null
 
 function getWorker(): Worker {
@@ -103,6 +122,12 @@ export async function generateRealisticPreview(
   input: RealisticPreviewInput,
 ): Promise<HTMLCanvasElement> {
   input.onProgress({ stage: 'preparando' })
+
+  if (!(await checkModelAvailable())) {
+    throw new Error(
+      'O modelo generativo não está instalado neste ambiente. Em desenvolvimento, rode scripts/download-generative-model.ps1; em produção, configure GENERATIVE_MODELS_URL (ver README).',
+    )
+  }
 
   const { width, height } = input.deformedCanvas
 

@@ -106,6 +106,7 @@ export default function SimulateScreen() {
   const extractRef = useRef<(() => HTMLCanvasElement | null) | null>(null)
   const [genStatus, setGenStatus] = useState<'idle' | 'rodando' | 'erro'>('idle')
   const [genLabel, setGenLabel] = useState('')
+  const [genError, setGenError] = useState<string | null>(null)
   const [resultUrl, setResultUrl] = useState<string | null>(null)
   const [showResult, setShowResult] = useState(false)
 
@@ -155,6 +156,7 @@ export default function SimulateScreen() {
       setGenStatus('idle')
     } catch (error) {
       console.error('[prévia realista]', error)
+      setGenError(error instanceof Error ? error.message : null)
       setGenStatus('erro')
     }
   }
@@ -519,8 +521,8 @@ export default function SimulateScreen() {
                       role="alert"
                       className="rounded-xl border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200"
                     >
-                      Falha na geração local. O ajuste determinístico continua
-                      disponível.
+                      {genError ??
+                        'Falha na geração local. O ajuste determinístico continua disponível.'}
                     </p>
                   )}
                   {resultUrl !== null && (

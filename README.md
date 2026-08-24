@@ -87,6 +87,20 @@ segue como fallback. O modelo (~2,2GB) não é versionado: rode
 COOP/COEP habilitados em `next.config.ts` (SharedArrayBuffer para o ORT
 multithread).
 
+**Produção (Vercel e afins)**: o deploy não contém o modelo (limite de
+tamanho + gitignore). Suba os 14 arquivos de `public/models/generative/`
+para um storage próprio (Cloudflare R2, Vercel Blob…) preservando os
+caminhos relativos, e defina a env `GENERATIVE_MODELS_URL` com a URL base
+do bucket. O rewrite em `next.config.ts` proxeia
+`/models/generative/*` para lá SOB O MESMO DOMÍNIO — o navegador nunca fala
+com terceiros e a foto continua 100% no dispositivo (o que trafega são os
+pesos do modelo, na direção contrária). Sem a env, a rota espera os
+arquivos em `public/` (dev). A UI verifica a disponibilidade do modelo
+antes de gerar e explica o que falta em vez de falhar com 404 críptico.
+Se o proxy da Vercel limitar respostas de 1,6GB, alternativa: subdomínio
+próprio (ex.: models.seudominio.com) apontando pro bucket com CORS +
+`Cross-Origin-Resource-Policy: cross-origin`, e a env apontando pra ele.
+
 Medido em 2026-08-24 (Intel Gen-9 iGPU, WebGPU): carga do pipeline ~28s
 (uma vez por sessão), geração completa ~140s. GPU dedicada deve reduzir isso
 substancialmente; sem WebGPU o recurso se declara indisponível.
