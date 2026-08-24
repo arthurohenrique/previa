@@ -1,0 +1,14 @@
+@import 'tailwindcss';
+
+html,
+body {
+  height: 100%;
+}
+
+/* Safe areas (iOS notch/home indicator e barras de sistema no Android). */
+@utility pb-safe {
+  padding-bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
+}
+@utility pt-safe {
+  padding-top: calc(0.75rem + env(safe-area-inset-top, 0px));
+}

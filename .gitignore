@@ -9,6 +9,11 @@ dist/
 .env.local
 .env*.local
 
+# fotos de teste com rosto real — nunca commitar (privacidade)
+docs/*.jpg
+docs/*.jpeg
+docs/*.png
+
 # sistema
 .DS_Store
 Thumbs.db
