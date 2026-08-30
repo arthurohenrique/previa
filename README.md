@@ -9,6 +9,12 @@ prévia ilustrativa, gerada por deformação de malha, **sem IA generativa** e c
 A especificação completa do projeto (restrições invioláveis, stack obrigatória,
 fases e checklist de revisão) está em [CLAUDE.md](CLAUDE.md).
 
+![Demonstração: toque na região do rosto, ajuste a intensidade em mL, compare antes/depois com o divisor e aplique outros procedimentos](docs/demo.gif)
+
+*Demonstração gravada por automação (Playwright) sobre o fluxo real do app:
+preenchimento labial a 100%, divisor antes/depois e preenchimento malar.
+Retrato de banco de imagens (licença Unsplash) — nenhuma foto de paciente.*
+
 ## Como rodar
 
 ```bash
@@ -198,7 +204,7 @@ src/
 | 4 — Motor de deformação | ✅ reconstruído: warp MLS por pixel + camada fotométrica |
 | 5 — Prévia realista (IA generativa local) | ✅ carga ~28s, geração ~140s em iGPU Gen-9 |
 | Exportação antes/depois (PNG/PDF + marca d'água) | ✅ PNG em alta com o mesmo campo; PDF A4 via jspdf; "Antes" e divisor no shader |
-| Testes em Safari iOS e Chrome Android | pendente (validado só em Chromium desktop) |
+| Testes em Safari iOS e Chrome Android | 🟡 medido em Chromium (CPU e GPU), WebKit e iPhone emulado — 60fps com GPU real, 11fps no piso de CPU pura; aparelhos físicos pendentes (tabela em docs/plano-reconstrucao.md) |
 
 Decisão registrada (2026-08-24): o processamento permanece 100% no dispositivo.
 Vercel (ou qualquer hospedagem) serve apenas os estáticos — não há GPU em

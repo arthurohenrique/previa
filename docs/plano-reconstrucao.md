@@ -101,7 +101,7 @@ Motor determinístico de qualidade profissional, 100% no navegador:
 | C | Camada fotométrica (`src/lib/photometric/`): luz estimada, shading lambertiano, shadow lift, lábios | ✅ 2026-08-30 |
 | D | Calibração em mL, antes/depois (segurar e dividir), exportação PNG/PDF com marca d'água | ✅ 2026-08-30 |
 | E | UI de produto (procedimentos, diagnóstico em /config), IA generativa atrás de flag, COOP/COEP removido | ✅ 2026-08-30 |
-| F | Medição e QA em Chrome desktop, Safari iOS e Chrome Android | pendente |
+| F | Medição e QA em Chrome desktop, Safari iOS e Chrome Android | 🟡 2026-08-30 — medido em 4 ambientes locais; aparelhos reais pendentes |
 
 ### Fase C — Camada fotométrica
 - `luma.ts` (luminância, blur, blur normalizado), `light.ts`
@@ -368,3 +368,51 @@ COOP/COEP. Testes: 152 passando; typecheck e `next build` limpos.
   continuam no deploy; removê-los quebraria a estratégia manual "IA" em
   /config — decisão de produto pendente.
 - `showDiagnostics` vive na sessão (não persiste ao recarregar).
+
+### Fase F — Medição e QA (parcial em 2026-08-30; aparelhos reais pendentes)
+
+Fluxo completo automatizado (upload → análise → 5 procedimentos a 100% →
+arrasto contínuo do slider por 2s → exportação PNG), retrato real de
+1024×1536, imagem de trabalho 480×720, grade do campo 171×256. Scripts:
+`measure.mjs` / `mobile.mjs` (Playwright, no scratchpad da sessão).
+
+| Ambiente (Mac M1) | captura→pronto | FPS arrasto | compose méd | upload méd | campo/região | export PNG |
+|---|---|---|---|---|---|---|
+| Chromium 145, SwiftShader (CPU pura — piso) | 11,1s | **11** | 31ms | 7ms | 373–714ms | 2,3s |
+| Chromium 151, ANGLE Metal (GPU real) | 8,6s | **60** | 15ms | 3ms | 174–599ms | 0,5s |
+| WebKit 26.5 (motor do Safari, Apple GPU) | 14,7s | **60** | 9ms | 3ms | 221–523ms | 0,2s |
+| iPhone 13 emulado (WebKit, toque, 390×844) | ok | — | — | — | — | — |
+
+- No iPhone emulado: palco com 55% da viewport visual, toque no lábio
+  seleciona o chip "Lábios", slider responde ao toque, zero erros.
+- **Rede**: única origem contatada em todo o fluxo é localhost (mais
+  blob:/data: internos). Zero domínios de terceiros. ✓ checklist.
+- **Zero `any`** no src (grep + tsc estrito). Zero erros de console nos
+  quatro ambientes.
+- `warp:light` ≤ 1,3ms em todos.
+
+**Achados**
+1. Bug PRÉ-EXISTENTE da Fase 1: se a foto entra antes de a detecção de
+   capacidade terminar, o pré-processo usa o perfil de fallback ('baixo' —
+   por isso a imagem de trabalho de 480×720 mesmo com perfil "Médio"
+   detectado). A automação sempre ganha essa corrida; um usuário humano
+   raramente. Correção sugerida: aguardar a detecção no `processBlob`.
+2. `warp:field` (~170–600ms por região no M1 a 256²; ~4× a 512²) está acima
+   do alvo de 150ms do plano. É custo ÚNICO por região, pago no primeiro
+   toque — percebido como um engasgo breve. Recomendação registrada: mover
+   `buildRegionField` para um Web Worker (a função já é pura) ou pré-calcular
+   as regiões em idle após a segmentação.
+3. `warp:compose` (9–15ms com GPU real) acima do alvo de 3ms — os buffers
+   agora têm 6 canais (geometria + fotometria). A 60fps sobra margem no
+   desktop; no mobile real pode apertar. Otimização possível: compor só as
+   regiões que mudaram.
+4. SwiftShader (pior caso absoluto, sem GPU nenhuma) ainda entrega 11 FPS e
+   o resultado correto — o produto degrada, não quebra.
+
+**Pendente (precisa dos aparelhos físicos)**
+- Safari iOS real e Chrome Android real: rodar `corepack pnpm dev` e acessar
+  pelo IP da máquina na rede local (mesmo Wi-Fi). Checklist mínimo por
+  aparelho: foto pela câmera; toque seleciona procedimento; slider fluido
+  (FPS no painel de diagnóstico, ligado em /config); "Antes"/"Dividir";
+  exportar PNG e PDF; aba Network sem terceiros; memória estável ao trocar
+  de foto 5×. Registrar os números nesta tabela.
