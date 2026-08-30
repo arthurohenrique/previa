@@ -97,6 +97,17 @@ alterados ficam restritos à região ajustada (lábio, malar, mento); fundo,
 cabelo, roupa e o resto do rosto são bit a bit iguais. Detalhes, números e
 decisões em [docs/plano-reconstrucao.md](docs/plano-reconstrucao.md).
 
+### Prévia generativa — EXPERIMENTAL, desligada por padrão
+
+A partir da Fase E da reconstrução, a difusão local fica atrás da variável
+`NEXT_PUBLIC_ENABLE_GENERATIVE=1` (build-time): sem ela não há botão na UI,
+nem headers COOP/COEP globais, nem rewrite do modelo. Motivos, medições e os
+dois bugs conhecidos do pipeline (o `LatentConsistencyModelPipeline` do
+diffusers.js ignora img2img — gera um rosto do prompt, não do paciente — e
+`tensorToRgba` aplica dupla conversão de faixa) estão registrados em
+[docs/plano-reconstrucao.md](docs/plano-reconstrucao.md). O texto abaixo
+descreve a implementação original, mantida para quem for retomá-la.
+
 ### Prévia realista — IA generativa local (Fase 5)
 
 Emenda à restrição nº 3 (decisão do dono do produto em 2026-08-24): geração
@@ -155,6 +166,8 @@ substancialmente; sem WebGPU o recurso se declara indisponível.
 src/
   app/            páginas (captura, /simular, /config)
   components/     capture/ e simulate/ (UI fina; lógica fica em lib/)
+                  simulate/ProcedurePanel = painel de produto;
+                  DiagnosticsPanel só com o toggle em /config
   lib/            domínio puro e testado:
     profile.ts      capacidade → perfil de execução
     image.ts        EXIF/orientação/resize (browser-image-compression)
@@ -167,6 +180,7 @@ src/
     photometric/    luminância, direção de luz, shading lambertiano,
                     shadow lift, bandas do lábio
     calibration.ts  intensidade → volume estimado (mL, placeholder)
+    procedures.ts   5 procedimentos da UI → regiões com proporções
     export/         render offscreen em alta, marca d'água, PDF (jspdf)
     deform/         histórico undo/redo
   store/          sessão Zustand (tudo em memória — LGPD)

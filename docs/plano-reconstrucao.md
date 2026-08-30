@@ -100,7 +100,7 @@ Motor determinístico de qualidade profissional, 100% no navegador:
 | B | Warp por pixel na GPU: `WarpFilter`, half-float, composição, `DeformCanvas` reescrito, motor antigo removido | ✅ 2026-08-30 |
 | C | Camada fotométrica (`src/lib/photometric/`): luz estimada, shading lambertiano, shadow lift, lábios | ✅ 2026-08-30 |
 | D | Calibração em mL, antes/depois (segurar e dividir), exportação PNG/PDF com marca d'água | ✅ 2026-08-30 |
-| E | UI de produto (procedimentos, diagnóstico em /config), IA generativa atrás de flag, COOP/COEP removido | pendente |
+| E | UI de produto (procedimentos, diagnóstico em /config), IA generativa atrás de flag, COOP/COEP removido | ✅ 2026-08-30 |
 | F | Medição e QA em Chrome desktop, Safari iOS e Chrome Android | pendente |
 
 ### Fase C — Camada fotométrica
@@ -331,3 +331,40 @@ software: `warp:light` ~1ms, compose 3–10ms, upload 5–30ms, campo por regiã
   estimativa. Validar com profissional antes de publicar.
 - A exportação limita o lado maior a 4096px (teto seguro de textura em GPU
   móvel); o original já é sanitizado nesse tamanho.
+
+### Fase E — UI de produto e IA generativa atrás de flag (concluída em 2026-08-30)
+
+**Feito**
+- `src/lib/procedures.ts` (puro, testado): 5 procedimentos — Lábios (sup
+  0,9× + inf 1,0× num único slider; o filtro labial pertence a "Lábios"),
+  Malar, Sulco e Olheira (os dois lados juntos), Mento. `regionToProcedure`
+  (toque no rosto → procedimento), `applyProcedure`/`procedureIntensity`
+  (a verdade continua no DeformMap por região — histórico intacto),
+  `procedureVolumeLabel` ("≈ 1,0 mL por lado" nos pares simétricos) e
+  `procedureLines` (linhas do PDF).
+- Store: `activeProcedure`, `previewProcedure`, `showDiagnostics`.
+- `ProcedurePanel.tsx`: chips dos 5 procedimentos (44px, ponto de "ajustado"),
+  slider com rótulo em mL, Desfazer/Refazer/Zerar, Comparar (Segurar antes /
+  Dividir) e Exportar. `DiagnosticsPanel.tsx`: métricas, 478 pontos, máscara,
+  FPS — renderizado só com o toggle "Diagnóstico" novo em `/config`.
+  `SimulateScreen` reescrito como orquestrador; cabeçalho "Simulação".
+- Prévia generativa EXPERIMENTAL atrás de `NEXT_PUBLIC_ENABLE_GENERATIVE=1`:
+  sem a flag não há seção na UI, nem headers COOP/COEP globais, nem rewrite
+  do modelo (`next.config.ts` condicional). README documenta a flag e os
+  bugs conhecidos do pipeline para quem retomar.
+
+**Verificado** (Chromium headless, retrato real): painel sem nenhum elemento
+de debug e sem seção generativa; toque no lábio ativa o chip "Lábios";
+slider a 100% mostra "≈ 1,0 mL" e altera só a boca (38–63% × 44–56%);
+chip "Malar" + slider altera as duas bochechas (23–77% × 29–49%);
+Desfazer retorna exatamente ao estado anterior (0 px de diferença);
+toggle em /config faz o painel de diagnóstico aparecer; `curl -I` sem
+COOP/COEP. Testes: 152 passando; typecheck e `next build` limpos.
+
+**Pendências conhecidas**
+- Um aviso cosmético do Pixi (recurso ligado a shader) ao trocar de foto/
+  desmontar o canvas — teardown interno do Pixi, sem efeito funcional.
+- Os modelos sem uso no caminho padrão (SegFormer 89MB + runtimes ORT)
+  continuam no deploy; removê-los quebraria a estratégia manual "IA" em
+  /config — decisão de produto pendente.
+- `showDiagnostics` vive na sessão (não persiste ao recarregar).

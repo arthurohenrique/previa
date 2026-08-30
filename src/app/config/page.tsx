@@ -28,6 +28,8 @@ export default function ConfigPage() {
   const setProfileOverride = useSession((s) => s.setProfileOverride)
   const segmentationStrategy = useSession((s) => s.segmentationStrategy)
   const setSegmentationStrategy = useSession((s) => s.setSegmentationStrategy)
+  const showDiagnostics = useSession((s) => s.showDiagnostics)
+  const setShowDiagnostics = useSession((s) => s.setShowDiagnostics)
 
   // Quem chega direto nesta rota também precisa da detecção.
   useEffect(() => {
@@ -180,6 +182,35 @@ export default function ConfigPage() {
             </label>
           ))}
         </div>
+      </section>
+
+      <section aria-labelledby="diagnostico">
+        <h2
+          id="diagnostico"
+          className="mb-2 text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400"
+        >
+          Diagnóstico
+        </h2>
+        <label className="flex min-h-11 cursor-pointer items-center gap-3 rounded-xl border border-zinc-300 px-4 py-2 dark:border-zinc-700">
+          <input
+            type="checkbox"
+            checked={showDiagnostics}
+            onChange={(e) => setShowDiagnostics(e.target.checked)}
+            className="accent-teal-700 dark:accent-teal-400"
+          />
+          <span className="text-sm">
+            <span className="font-semibold">Painel de diagnóstico na simulação</span>
+            <span className="text-zinc-500 dark:text-zinc-400">
+              {' '}
+              — métricas de inferência, 478 pontos, máscara e FPS
+            </span>
+          </span>
+        </label>
+        <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
+          A prévia generativa experimental (difusão local) permanece desativada;
+          para desenvolvimento, ligue com a variável NEXT_PUBLIC_ENABLE_GENERATIVE=1
+          (ver README).
+        </p>
       </section>
     </main>
   )

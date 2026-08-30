@@ -17,6 +17,7 @@ import {
 } from '@/lib/deform/history'
 import type { ProcessedPhoto } from '@/lib/image'
 import type { FaceAnalysis } from '@/lib/landmarker'
+import { applyProcedure, type ProcedureId } from '@/lib/procedures'
 import type { DeviceCapabilities, ExecutionProfile } from '@/lib/profile'
 import type { SegmentationOutput, SegmentationStrategy } from '@/lib/segmentation/types'
 
@@ -45,6 +46,10 @@ interface SessionState {
 
   /** Região anatômica ativa (Fase 3), escolhida pelo toque na foto. */
   activeRegion: RegionId | null
+  /** Procedimento ativo no painel (Fase E). */
+  activeProcedure: ProcedureId | null
+  /** Painel de diagnóstico (métricas, landmarks, máscara) — toggle em /config. */
+  showDiagnostics: boolean
 
   /** Intensidades ao vivo por região (Fase 4). */
   deformations: DeformMap
@@ -58,8 +63,12 @@ interface SessionState {
   setSegmentation(segmentation: SegmentationOutput): void
   setSegmentationStrategy(strategy: SegmentationStrategy): void
   setActiveRegion(region: RegionId | null): void
+  setActiveProcedure(procedure: ProcedureId | null): void
+  setShowDiagnostics(show: boolean): void
   /** Ajuste ao vivo (arrasto do slider) — não entra no histórico. */
   previewDeformation(region: RegionId, intensity: number): void
+  /** Ajuste ao vivo do procedimento: distribui pelas regiões via ratio. */
+  previewProcedure(procedure: ProcedureId, intensity: number): void
   /** Confirma o estado ao vivo no histórico (soltar o slider). */
   commitDeformation(): void
   undoDeformation(): void
@@ -82,6 +91,8 @@ export const useSession = create<SessionState>()((set, get) => ({
   segmentation: null,
   segmentationStrategy: 'auto',
   activeRegion: null,
+  activeProcedure: null,
+  showDiagnostics: false,
   deformations: {},
   deformHistory: createHistory<DeformMap>({}),
 
@@ -103,6 +114,7 @@ export const useSession = create<SessionState>()((set, get) => ({
       analysis: null,
       segmentation: null,
       activeRegion: null,
+      activeProcedure: null,
       deformations: {},
       deformHistory: createHistory<DeformMap>({}),
     })
@@ -110,8 +122,15 @@ export const useSession = create<SessionState>()((set, get) => ({
 
   setActiveRegion: (activeRegion) => set({ activeRegion }),
 
+  setActiveProcedure: (activeProcedure) => set({ activeProcedure }),
+
+  setShowDiagnostics: (showDiagnostics) => set({ showDiagnostics }),
+
   previewDeformation: (region, intensity) =>
     set((state) => ({ deformations: { ...state.deformations, [region]: intensity } })),
+
+  previewProcedure: (procedure, intensity) =>
+    set((state) => ({ deformations: applyProcedure(procedure, intensity, state.deformations) })),
 
   commitDeformation: () =>
     set((state) => {
@@ -169,6 +188,7 @@ export const useSession = create<SessionState>()((set, get) => ({
       analysis: null,
       segmentation: null,
       activeRegion: null,
+      activeProcedure: null,
       deformations: {},
       deformHistory: createHistory<DeformMap>({}),
     })

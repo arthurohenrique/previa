@@ -4,12 +4,12 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import DeformCanvas, { type CompareState } from './DeformCanvas'
+import DiagnosticsPanel, { MASK_GROUPS, type MaskGroupKey, type SegStatus } from './DiagnosticsPanel'
 import LandmarkOverlay from './LandmarkOverlay'
 import MaskOverlay from './MaskOverlay'
+import ProcedurePanel from './ProcedurePanel'
 import RegionHighlight from './RegionHighlight'
-import { classifyPoint, REGIONS, type RegionId } from '@/lib/anatomy'
-import { volumeLabel } from '@/lib/calibration'
-import { canRedo, canUndo } from '@/lib/deform/history'
+import { classifyPoint } from '@/lib/anatomy'
 import { buildComparisonPdf } from '@/lib/export/pdf'
 import {
   decodeToCanvas,
@@ -25,26 +25,19 @@ import {
   type GenerationProgress,
 } from '@/lib/generative/client'
 import { analyzeFace } from '@/lib/landmarker'
+import { procedureLines, regionToProcedure } from '@/lib/procedures'
 import { QUALITY_MESSAGES, type QualityIssue } from '@/lib/quality'
+import type { RegionId } from '@/lib/anatomy'
 import { segmentPhoto } from '@/lib/segmentation/client'
-import { FACE_CLASSES } from '@/lib/segmentation/mask'
 import { selectEffectiveProfile, useSession } from '@/store/session'
 
 type Status = 'analisando' | 'ok' | 'erro-tecnico' | QualityIssue
 
-type SegStatus = 'aguardando' | 'baixando' | 'inferindo' | 'ok' | 'erro'
-
-/** Grupos de classes exibíveis na máscara de debug. */
-const MASK_GROUPS = [
-  { key: 'labios', label: 'Lábios', classes: [FACE_CLASSES.u_lip, FACE_CLASSES.l_lip, FACE_CLASSES.mouth] },
-  { key: 'pele', label: 'Pele', classes: [FACE_CLASSES.skin] },
-  { key: 'olhos', label: 'Olhos', classes: [FACE_CLASSES.l_eye, FACE_CLASSES.r_eye] },
-  { key: 'sobrancelhas', label: 'Sobrancelhas', classes: [FACE_CLASSES.l_brow, FACE_CLASSES.r_brow] },
-  { key: 'nariz', label: 'Nariz', classes: [FACE_CLASSES.nose] },
-  { key: 'cabelo', label: 'Cabelo', classes: [FACE_CLASSES.hair] },
-] as const
-
-type MaskGroupKey = (typeof MASK_GROUPS)[number]['key']
+/**
+ * Prévia generativa é EXPERIMENTAL e desligada por padrão: o pipeline nunca
+ * operou em produção (bugs registrados em docs/plano-reconstrucao.md).
+ */
+const GENERATIVE_ENABLED = process.env.NEXT_PUBLIC_ENABLE_GENERATIVE === '1'
 
 const secondaryButton =
   'flex min-h-11 items-center justify-center rounded-xl border border-zinc-300 px-4 text-sm font-semibold text-zinc-700 transition hover:border-zinc-400 hover:text-zinc-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-500 dark:hover:text-zinc-100'
@@ -84,7 +77,7 @@ export default function SimulateScreen() {
   const [segStatus, setSegStatus] = useState<SegStatus>('aguardando')
   const [downloadProgress, setDownloadProgress] = useState(0)
   const [showMask, setShowMask] = useState(false)
-  const [maskGroup, setMaskGroup] = useState<MaskGroupKey>('labios')
+  const [maskGroup, setMaskGroup] = useState<MaskGroupKey>(MASK_GROUPS[0].key)
 
   const stageRef = useRef<HTMLDivElement>(null)
 
@@ -101,19 +94,15 @@ export default function SimulateScreen() {
   const effectiveProfile = useSession(selectEffectiveProfile)
   const activeRegion = useSession((s) => s.activeRegion)
   const setActiveRegion = useSession((s) => s.setActiveRegion)
+  const setActiveProcedure = useSession((s) => s.setActiveProcedure)
+  const showDiagnostics = useSession((s) => s.showDiagnostics)
   const deformations = useSession((s) => s.deformations)
-  const deformHistory = useSession((s) => s.deformHistory)
-  const previewDeformation = useSession((s) => s.previewDeformation)
-  const commitDeformation = useSession((s) => s.commitDeformation)
-  const undoDeformation = useSession((s) => s.undoDeformation)
-  const redoDeformation = useSession((s) => s.redoDeformation)
-  const resetDeformations = useSession((s) => s.resetDeformations)
 
   const [fps, setFps] = useState<number | null>(null)
   /** Durante o arrasto do slider o destaque some para o resultado aparecer. */
   const [adjusting, setAdjusting] = useState(false)
 
-  // Antes/depois (Fase D): "Antes" segurado e divisor arrastável.
+  // Antes/depois: "Antes" segurado e divisor arrastável (Fase D).
   const [holdBefore, setHoldBefore] = useState(false)
   const [splitMode, setSplitMode] = useState(false)
   const [splitX, setSplitX] = useState(0.5)
@@ -124,14 +113,6 @@ export default function SimulateScreen() {
   const snapshotRef = useRef<(() => FieldSnapshot | null) | null>(null)
   const [exporting, setExporting] = useState<'png' | 'pdf' | null>(null)
   const [exportError, setExportError] = useState<string | null>(null)
-
-  const activeProcedureLines = () =>
-    (Object.keys(deformations) as RegionId[])
-      .filter((region) => (deformations[region] ?? 0) > 0)
-      .map(
-        (region) =>
-          `${REGIONS[region].procedure} — ${REGIONS[region].label}: ${volumeLabel(region, deformations[region] ?? 0)}`,
-      )
 
   const handleExport = async (kind: 'png' | 'pdf') => {
     const snapshot = snapshotRef.current?.()
@@ -149,7 +130,7 @@ export default function SimulateScreen() {
         const pdf = buildComparisonPdf({
           before,
           after: withWatermark(after),
-          procedures: activeProcedureLines(),
+          procedures: procedureLines(deformations),
         })
         downloadBlob(pdf, exportFilename('pdf'))
       }
@@ -174,7 +155,7 @@ export default function SimulateScreen() {
     setSplitX(Math.min(0.98, Math.max(0.02, px / rect.width)))
   }
 
-  // Prévia realista (Fase 5): geração local sob demanda.
+  // Prévia generativa experimental (atrás de flag): geração local sob demanda.
   const capabilities = useSession((s) => s.capabilities)
   const extractRef = useRef<(() => HTMLCanvasElement | null) | null>(null)
   const [genStatus, setGenStatus] = useState<'idle' | 'rodando' | 'erro'>('idle')
@@ -228,7 +209,7 @@ export default function SimulateScreen() {
       setShowResult(true)
       setGenStatus('idle')
     } catch (error) {
-      console.error('[prévia realista]', error)
+      console.error('[prévia generativa]', error)
       setGenError(error instanceof Error ? error.message : null)
       setGenStatus('erro')
     }
@@ -270,7 +251,7 @@ export default function SimulateScreen() {
     }
   }, [workingPhotoUrl, analysis, setAnalysis])
 
-  // Fase 2.5: segmentação roda uma vez por foto/estratégia, após os landmarks.
+  // Segmentação roda uma vez por foto/estratégia, após os landmarks.
   useEffect(() => {
     if (status !== 'ok' || analysis === null || workingPhoto === null) return
     if (photoWidth === null || photoHeight === null) return
@@ -336,7 +317,8 @@ export default function SimulateScreen() {
     return () => observer.disconnect()
   }, [photoWidth, photoHeight])
 
-  // Um único caminho de interação para mouse, toque e caneta (Pointer Events).
+  // Um único caminho de interação para mouse, toque e caneta (Pointer Events):
+  // o toque escolhe a região e, com ela, o procedimento do painel.
   const handlePointerDown = (event: React.PointerEvent<HTMLElement>) => {
     if (segmentation === null || analysis === null || rect === null) return
     const stage = stageRef.current
@@ -346,10 +328,13 @@ export default function SimulateScreen() {
     const py = event.clientY - bounds.top - rect.top
     if (px < 0 || py < 0 || px > rect.width || py > rect.height) {
       setActiveRegion(null)
+      setActiveProcedure(null)
       return
     }
     const uv = { x: px / rect.width, y: py / rect.height }
-    setActiveRegion(classifyPoint(uv, segmentation.map, analysis.landmarks))
+    const region = classifyPoint(uv, segmentation.map, analysis.landmarks)
+    setActiveRegion(region)
+    setActiveProcedure(region === null ? null : regionToProcedure(region))
   }
 
   if (workingPhotoUrl === null) return null
@@ -417,7 +402,7 @@ export default function SimulateScreen() {
           </div>
         )}
 
-        {showResult && resultUrl !== null && rect !== null && (
+        {GENERATIVE_ENABLED && showResult && resultUrl !== null && rect !== null && (
           <div
             className="pointer-events-none absolute"
             style={{
@@ -430,7 +415,7 @@ export default function SimulateScreen() {
             {/* eslint-disable-next-line @next/next/no-img-element -- object URL local */}
             <img
               src={resultUrl}
-              alt="Prévia realista gerada localmente"
+              alt="Prévia gerada localmente (experimental)"
               className="h-full w-full"
             />
             <span className="absolute bottom-2 right-2 rounded-md bg-zinc-950/70 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-zinc-100">
@@ -449,18 +434,19 @@ export default function SimulateScreen() {
             />
           )}
 
-        {status === 'ok' && segmentation !== null && showMask && rect !== null && (
-          <MaskOverlay
-            map={segmentation.map}
-            classIds={
-              MASK_GROUPS.find((group) => group.key === maskGroup)?.classes ?? []
-            }
-            rect={rect}
-          />
-        )}
+        {status === 'ok' && segmentation !== null && showDiagnostics && showMask &&
+          rect !== null && (
+            <MaskOverlay
+              map={segmentation.map}
+              classIds={
+                MASK_GROUPS.find((group) => group.key === maskGroup)?.classes ?? []
+              }
+              rect={rect}
+            />
+          )}
 
-        {status === 'ok' && analysis !== null && showOverlay && rect !== null &&
-          photoWidth !== null && photoHeight !== null && (
+        {status === 'ok' && analysis !== null && showDiagnostics && showOverlay &&
+          rect !== null && photoWidth !== null && photoHeight !== null && (
             <LandmarkOverlay
               landmarks={analysis.landmarks}
               width={photoWidth}
@@ -482,8 +468,13 @@ export default function SimulateScreen() {
       {/* max-h no celular: o palco (canvas) nunca cede mais que ~45% da tela. */}
       <aside className="flex max-h-[45dvh] shrink-0 flex-col gap-4 overflow-y-auto border-t border-zinc-200 bg-white p-4 pb-safe sm:max-h-none sm:w-80 sm:border-l sm:border-t-0 sm:p-6 dark:border-zinc-800 dark:bg-zinc-950">
         <header className="flex items-baseline justify-between">
-          <h1 className="text-2xl font-bold tracking-tight">Análise</h1>
-          <span className="text-xs text-zinc-500 dark:text-zinc-400">Fase 2 · debug</span>
+          <h1 className="text-2xl font-bold tracking-tight">Simulação</h1>
+          <Link
+            href="/config"
+            className="text-xs text-zinc-500 underline-offset-2 hover:underline dark:text-zinc-400"
+          >
+            Configuração
+          </Link>
         </header>
 
         {issueMessage !== null && (
@@ -508,373 +499,86 @@ export default function SimulateScreen() {
 
         {status === 'ok' && analysis !== null && (
           <>
-            {activeRegion !== null ? (
-              <div
-                aria-live="polite"
-                className="flex flex-col gap-2 rounded-xl border border-teal-700/40 bg-teal-700/5 px-4 py-3 dark:border-teal-400/40"
-              >
-                <div className="flex flex-col gap-0.5">
-                  <span className="text-base font-semibold">
-                    {REGIONS[activeRegion].label}
-                  </span>
-                  <span className="text-sm text-zinc-600 dark:text-zinc-300">
-                    {REGIONS[activeRegion].procedure}
-                  </span>
-                </div>
-                <label className="block">
-                  <span className="mb-1 flex items-center justify-between text-sm font-medium">
-                    Intensidade
-                    <span className="tabular-nums text-zinc-500 dark:text-zinc-400">
-                      {Math.round((deformations[activeRegion] ?? 0) * 100)}% ·{' '}
-                      {volumeLabel(activeRegion, deformations[activeRegion] ?? 0)}
-                    </span>
-                  </span>
-                  <input
-                    type="range"
-                    min={0}
-                    max={100}
-                    step={1}
-                    value={Math.round((deformations[activeRegion] ?? 0) * 100)}
-                    onChange={(e) => {
-                      setShowResult(false) // resultado gerado ficou defasado
-                      previewDeformation(activeRegion, Number(e.target.value) / 100)
-                    }}
-                    onPointerDown={() => setAdjusting(true)}
-                    onPointerUp={() => {
-                      setAdjusting(false)
-                      commitDeformation()
-                    }}
-                    onKeyDown={() => setAdjusting(true)}
-                    onKeyUp={() => {
-                      setAdjusting(false)
-                      commitDeformation()
-                    }}
-                    className="h-11 w-full accent-teal-700 dark:accent-teal-400"
-                  />
-                  <span className="mt-1 block text-xs text-zinc-500 dark:text-zinc-400">
-                    Volume estimado, ilustrativo — não substitui a avaliação clínica.
-                  </span>
-                </label>
-              </div>
-            ) : (
-              <p
-                aria-live="polite"
-                className="rounded-xl bg-zinc-100 px-4 py-3 text-sm text-zinc-600 dark:bg-zinc-900 dark:text-zinc-300"
-              >
-                {segStatus === 'ok'
-                  ? 'Toque em uma região do rosto (lábios, malar, mento…) para escolher o procedimento.'
-                  : 'Preparando a máscara de regiões…'}
-              </p>
-            )}
+            <ProcedurePanel
+              ready={segStatus === 'ok'}
+              onAdjustingChange={setAdjusting}
+              onDeformationChange={GENERATIVE_ENABLED ? () => setShowResult(false) : undefined}
+              holdBefore={holdBefore}
+              onHoldBefore={setHoldBefore}
+              splitMode={splitMode}
+              onToggleSplit={() => setSplitMode((value) => !value)}
+              exporting={exporting}
+              exportError={exportError}
+              canExport={originalPhoto !== null}
+              onExport={(kind) => void handleExport(kind)}
+            />
 
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={undoDeformation}
-                disabled={!canUndo(deformHistory)}
-                className="flex min-h-11 flex-1 items-center justify-center rounded-xl border border-zinc-300 px-3 text-sm font-semibold text-zinc-700 transition hover:border-zinc-400 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-300"
-              >
-                Desfazer
-              </button>
-              <button
-                type="button"
-                onClick={redoDeformation}
-                disabled={!canRedo(deformHistory)}
-                className="flex min-h-11 flex-1 items-center justify-center rounded-xl border border-zinc-300 px-3 text-sm font-semibold text-zinc-700 transition hover:border-zinc-400 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-300"
-              >
-                Refazer
-              </button>
-              <button
-                type="button"
-                onClick={resetDeformations}
-                disabled={Object.values(deformations).every((v) => !v)}
-                className="flex min-h-11 flex-1 items-center justify-center rounded-xl border border-zinc-300 px-3 text-sm font-semibold text-zinc-700 transition hover:border-zinc-400 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-300"
-              >
-                Zerar
-              </button>
-            </div>
-
-            <section aria-labelledby="comparar" className="flex flex-col gap-2">
-              <h2
-                id="comparar"
-                className="text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400"
-              >
-                Comparar e exportar
-              </h2>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onPointerDown={() => setHoldBefore(true)}
-                  onPointerUp={() => setHoldBefore(false)}
-                  onPointerLeave={() => setHoldBefore(false)}
-                  onPointerCancel={() => setHoldBefore(false)}
-                  onKeyDown={(e) => {
-                    if (e.key === ' ' || e.key === 'Enter') setHoldBefore(true)
-                  }}
-                  onKeyUp={() => setHoldBefore(false)}
-                  disabled={Object.values(deformations).every((v) => !v)}
-                  className={`${secondaryButton} flex-1 select-none touch-none`}
-                  aria-pressed={holdBefore}
+            {GENERATIVE_ENABLED && (
+              <section aria-labelledby="previa-generativa" className="flex flex-col gap-2">
+                <h2
+                  id="previa-generativa"
+                  className="text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400"
                 >
-                  {holdBefore ? 'Mostrando o antes' : 'Segurar: antes'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSplitMode((value) => !value)}
-                  disabled={Object.values(deformations).every((v) => !v)}
-                  className={`${secondaryButton} flex-1`}
-                  aria-pressed={splitMode}
-                >
-                  {splitMode ? 'Fechar divisor' : 'Dividir'}
-                </button>
-              </div>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => void handleExport('png')}
-                  disabled={exporting !== null || originalPhoto === null}
-                  className={`${secondaryButton} flex-1`}
-                >
-                  {exporting === 'png' ? 'Gerando PNG…' : 'Exportar PNG'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void handleExport('pdf')}
-                  disabled={exporting !== null || originalPhoto === null}
-                  className={`${secondaryButton} flex-1`}
-                >
-                  {exporting === 'pdf' ? 'Gerando PDF…' : 'Exportar PDF'}
-                </button>
-              </div>
-              {exportError !== null && (
-                <p
-                  role="alert"
-                  className="rounded-xl border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200"
-                >
-                  {exportError}
-                </p>
-              )}
-              <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                A exportação usa a foto em alta resolução, leva a marca d&apos;água
-                &quot;Simulação ilustrativa&quot; e fica só neste aparelho.
-              </p>
-            </section>
-
-            <section aria-labelledby="previa-realista" className="flex flex-col gap-2">
-              <h2
-                id="previa-realista"
-                className="text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400"
-              >
-                Prévia realista
-              </h2>
-
-              {capabilities?.webgpu !== true ? (
-                <p className="rounded-xl bg-zinc-100 px-3 py-2 text-xs text-zinc-500 dark:bg-zinc-900 dark:text-zinc-400">
-                  Indisponível neste aparelho (exige WebGPU). O ajuste
-                  determinístico acima continua valendo.
-                </p>
-              ) : (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => void handleGenerate()}
-                    disabled={
-                      genStatus === 'rodando' ||
-                      Object.values(deformations).every((v) => !v)
-                    }
-                    className="flex min-h-11 items-center justify-center rounded-xl bg-teal-700 px-4 text-sm font-semibold text-white transition hover:bg-teal-600 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-teal-400 dark:text-zinc-950 dark:hover:bg-teal-300"
-                  >
-                    {genStatus === 'rodando' ? genLabel : 'Gerar prévia realista'}
-                  </button>
-                  {genStatus === 'erro' && (
-                    <p
-                      role="alert"
-                      className="rounded-xl border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200"
-                    >
-                      {genError ??
-                        'Falha na geração local. O ajuste determinístico continua disponível.'}
-                    </p>
-                  )}
-                  {resultUrl !== null && (
+                  Prévia generativa (experimental)
+                </h2>
+                {capabilities?.webgpu !== true ? (
+                  <p className="rounded-xl bg-zinc-100 px-3 py-2 text-xs text-zinc-500 dark:bg-zinc-900 dark:text-zinc-400">
+                    Indisponível neste aparelho (exige WebGPU). O ajuste
+                    determinístico acima continua valendo.
+                  </p>
+                ) : (
+                  <>
                     <button
                       type="button"
-                      onClick={() => setShowResult((value) => !value)}
+                      onClick={() => void handleGenerate()}
+                      disabled={
+                        genStatus === 'rodando' ||
+                        Object.values(deformations).every((v) => !v)
+                      }
                       className={secondaryButton}
                     >
-                      {showResult ? 'Ver ajuste de malha' : 'Ver prévia realista'}
+                      {genStatus === 'rodando' ? genLabel : 'Gerar prévia (difusão local)'}
                     </button>
-                  )}
-                  <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                    Gerada neste aparelho, apenas na região ajustada — o resto
-                    da foto permanece intocado. Ajustar o slider novamente
-                    exige nova geração.
-                  </p>
-                </>
-              )}
-            </section>
+                    {genStatus === 'erro' && (
+                      <p
+                        role="alert"
+                        className="rounded-xl border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200"
+                      >
+                        {genError ??
+                          'Falha na geração local. O ajuste determinístico continua disponível.'}
+                      </p>
+                    )}
+                    {resultUrl !== null && (
+                      <button
+                        type="button"
+                        onClick={() => setShowResult((value) => !value)}
+                        className={secondaryButton}
+                      >
+                        {showResult ? 'Ver ajuste determinístico' : 'Ver prévia gerada'}
+                      </button>
+                    )}
+                  </>
+                )}
+              </section>
+            )}
 
-            <dl className="flex flex-col gap-1 rounded-xl bg-zinc-100 p-3 text-sm dark:bg-zinc-900">
-              <div className="flex justify-between">
-                <dt className="text-zinc-500 dark:text-zinc-400">Carga do modelo</dt>
-                <dd className="tabular-nums">
-                  {analysis.modelLoadMs < 1
-                    ? 'em memória'
-                    : `${Math.round(analysis.modelLoadMs)} ms`}
-                </dd>
-              </div>
-              <div className="flex justify-between">
-                <dt className="text-zinc-500 dark:text-zinc-400">Inferência</dt>
-                <dd className="tabular-nums">{Math.round(analysis.inferenceMs)} ms</dd>
-              </div>
-              <div className="flex justify-between">
-                <dt className="text-zinc-500 dark:text-zinc-400">Landmarks</dt>
-                <dd className="tabular-nums">{analysis.landmarks.length}</dd>
-              </div>
-              <div className="flex justify-between">
-                <dt className="text-zinc-500 dark:text-zinc-400">Nitidez (var. Laplaciano)</dt>
-                <dd className="tabular-nums">{analysis.sharpness.toFixed(1)}</dd>
-              </div>
-              <div className="flex justify-between">
-                <dt className="text-zinc-500 dark:text-zinc-400">Simetria (yaw)</dt>
-                <dd className="tabular-nums">{analysis.yawRatio.toFixed(2)}</dd>
-              </div>
-              <div className="flex justify-between">
-                <dt className="text-zinc-500 dark:text-zinc-400">FPS (render)</dt>
-                <dd className="tabular-nums">{fps === null ? '—' : Math.round(fps)}</dd>
-              </div>
-            </dl>
-
-            <div className="flex flex-col gap-2">
-              <label className="flex min-h-11 cursor-pointer items-center gap-3 rounded-xl border border-zinc-300 px-4 dark:border-zinc-700">
-                <input
-                  type="checkbox"
-                  checked={showOverlay}
-                  onChange={(e) => setShowOverlay(e.target.checked)}
-                  className="accent-teal-700 dark:accent-teal-400"
-                />
-                <span className="text-sm font-medium">Mostrar os 478 pontos</span>
-              </label>
-              <label className="flex min-h-11 cursor-pointer items-center gap-3 rounded-xl border border-zinc-300 px-4 dark:border-zinc-700">
-                <input
-                  type="checkbox"
-                  checked={showIndices}
-                  disabled={!showOverlay}
-                  onChange={(e) => setShowIndices(e.target.checked)}
-                  className="accent-teal-700 dark:accent-teal-400"
-                />
-                <span className="text-sm font-medium">Numerar os pontos</span>
-              </label>
-            </div>
-
-            <section aria-labelledby="segmentacao" className="flex flex-col gap-2">
-              <h2
-                id="segmentacao"
-                className="text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400"
-              >
-                Segmentação
-              </h2>
-
-              {segStatus === 'baixando' && (
-                <div className="flex flex-col gap-1">
-                  <p className="text-sm text-zinc-500 dark:text-zinc-400">
-                    Baixando o modelo… {Math.round(downloadProgress * 100)}%
-                  </p>
-                  <div
-                    role="progressbar"
-                    aria-valuenow={Math.round(downloadProgress * 100)}
-                    aria-valuemin={0}
-                    aria-valuemax={100}
-                    className="h-2 overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-800"
-                  >
-                    <div
-                      className="h-full bg-teal-600 transition-[width] dark:bg-teal-400"
-                      style={{ width: `${downloadProgress * 100}%` }}
-                    />
-                  </div>
-                </div>
-              )}
-
-              {segStatus === 'inferindo' && (
-                <p className="text-sm text-zinc-500 dark:text-zinc-400">
-                  Segmentando o rosto…
-                </p>
-              )}
-
-              {segStatus === 'erro' && (
-                <p
-                  role="alert"
-                  className="rounded-xl border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200"
-                >
-                  Falha na segmentação. A simulação seguirá com a máscara por
-                  landmarks — troque a estratégia na configuração.
-                </p>
-              )}
-
-              {segStatus === 'ok' && segmentation !== null && (
-                <>
-                  <dl className="flex flex-col gap-1 rounded-xl bg-zinc-100 p-3 text-sm dark:bg-zinc-900">
-                    <div className="flex justify-between">
-                      <dt className="text-zinc-500 dark:text-zinc-400">Backend</dt>
-                      <dd>{segmentation.meta.backend}</dd>
-                    </div>
-                    <div className="flex justify-between">
-                      <dt className="text-zinc-500 dark:text-zinc-400">Carga do modelo</dt>
-                      <dd className="tabular-nums">
-                        {segmentation.meta.modelLoadMs < 1
-                          ? '—'
-                          : `${Math.round(segmentation.meta.modelLoadMs)} ms`}
-                      </dd>
-                    </div>
-                    <div className="flex justify-between">
-                      <dt className="text-zinc-500 dark:text-zinc-400">Inferência</dt>
-                      <dd className="tabular-nums">
-                        {Math.round(segmentation.meta.inferenceMs)} ms
-                      </dd>
-                    </div>
-                    <div className="flex justify-between">
-                      <dt className="text-zinc-500 dark:text-zinc-400">Pico de memória</dt>
-                      <dd className="tabular-nums">
-                        {segmentation.meta.memoryPeakMB === null
-                          ? 'não exposto'
-                          : `${Math.round(segmentation.meta.memoryPeakMB)} MB`}
-                      </dd>
-                    </div>
-                    <div className="flex justify-between">
-                      <dt className="text-zinc-500 dark:text-zinc-400">Máscara</dt>
-                      <dd className="tabular-nums">
-                        {segmentation.map.width} × {segmentation.map.height}
-                      </dd>
-                    </div>
-                  </dl>
-
-                  <label className="flex min-h-11 cursor-pointer items-center gap-3 rounded-xl border border-zinc-300 px-4 dark:border-zinc-700">
-                    <input
-                      type="checkbox"
-                      checked={showMask}
-                      onChange={(e) => setShowMask(e.target.checked)}
-                      className="accent-teal-700 dark:accent-teal-400"
-                    />
-                    <span className="text-sm font-medium">Mostrar máscara</span>
-                  </label>
-
-                  <label className="flex flex-col gap-1">
-                    <span className="text-sm font-medium">Região destacada</span>
-                    <select
-                      value={maskGroup}
-                      onChange={(e) => setMaskGroup(e.target.value as MaskGroupKey)}
-                      disabled={!showMask}
-                      className="min-h-11 rounded-xl border border-zinc-300 bg-white px-3 text-sm dark:border-zinc-700 dark:bg-zinc-900"
-                    >
-                      {MASK_GROUPS.map((group) => (
-                        <option key={group.key} value={group.key}>
-                          {group.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </>
-              )}
-            </section>
+            {showDiagnostics && (
+              <DiagnosticsPanel
+                analysis={analysis}
+                fps={fps}
+                segStatus={segStatus}
+                downloadProgress={downloadProgress}
+                segmentation={segmentation}
+                showOverlay={showOverlay}
+                onShowOverlay={setShowOverlay}
+                showIndices={showIndices}
+                onShowIndices={setShowIndices}
+                showMask={showMask}
+                onShowMask={setShowMask}
+                maskGroup={maskGroup}
+                onMaskGroup={setMaskGroup}
+              />
+            )}
           </>
         )}
 
