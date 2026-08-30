@@ -1,21 +1,38 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { Application, MeshSimple, Texture } from 'pixi.js'
-import { interocularDistance, type RegionId } from '@/lib/anatomy'
-import { composeVertices, computeRegionField, type DeformMap } from '@/lib/deform/field'
-import { buildGridMesh, MESH_COLUMNS, type DeformMesh } from '@/lib/deform/mesh'
-import { buildShadingSource } from '@/lib/deform/shading'
+import { Application, Sprite, Texture } from 'pixi.js'
+import type { RegionId } from '@/lib/anatomy'
+import { estimateLight } from '@/lib/photometric/light'
+import { lumaFromRgba, type LumaImage } from '@/lib/photometric/luma'
 import type { ExecutionProfile } from '@/lib/profile'
 import type { Point2 } from '@/lib/quality'
 import type { LabelMap } from '@/lib/segmentation/mask'
+import { composeFields, type DeformMap } from '@/lib/warp/compose'
+import {
+  buildRegionField,
+  FIELD_MAX_SIDE,
+  fieldDimensions,
+  PHOTO_CHANNELS,
+  type PhotometricInput,
+  type RegionField,
+} from '@/lib/warp/field'
+import { WarpFilter } from '@/lib/warp/WarpFilter'
+import type { FieldSnapshot } from '@/lib/export/render'
+
+export interface CompareState {
+  /** false = mostra o original (botão "Antes" pressionado). */
+  showAfter: boolean
+  /** uv 0..1 do divisor (esquerda = antes); null = sem divisor. */
+  splitX: number | null
+}
 
 interface DeformCanvasProps {
   photo: Blob
   photoWidth: number
   photoHeight: number
   landmarks: readonly Point2[]
-  /** Máscara de segmentação: confina a deformação ao rosto. */
+  /** Máscara de segmentação: confina as regiões interiores ao rosto. */
   segmentationMap: LabelMap
   deformations: DeformMap
   profile: ExecutionProfile
@@ -23,29 +40,32 @@ interface DeformCanvasProps {
   rect: { left: number; top: number; width: number; height: number }
   /** FPS do ticker do Pixi, reportado ~2×/s para o painel de debug. */
   onFps?: (fps: number) => void
+  /** Antes/depois: aplicado no shader, sem recompor o campo. */
+  compare: CompareState
   /** Recebe uma função que extrai o frame atual (foto deformada) como canvas. */
   extractRef?: React.MutableRefObject<(() => HTMLCanvasElement | null) | null>
-}
-
-interface RegionShading {
-  highlight: MeshSimple
-  shadow: MeshSimple
-  strength: number
+  /** Recebe uma função que copia o campo composto atual (para exportar em alta). */
+  snapshotRef?: React.MutableRefObject<(() => FieldSnapshot | null) | null>
 }
 
 interface PixiState {
   app: Application
-  simpleMesh: MeshSimple
-  mesh: DeformMesh
-  fields: Map<RegionId, Float32Array>
-  /** Realce/meia-sombra por região — a pista de volume do preenchimento. */
-  shading: Map<RegionId, RegionShading>
+  filter: WarpFilter
+  /** Luminância da foto na grade do campo (uma vez por foto). */
+  luma: LumaImage
+  /** Direção de luz estimada — calculada no primeiro campo (precisa da máscara). */
+  photometric: PhotometricInput | null
+  /** Campos por região na intensidade 1 (calculados uma vez, sob demanda). */
+  fields: Map<RegionId, RegionField>
+  /** Buffers reutilizados da soma ponderada. */
+  composedDisp: Float32Array
+  composedPhoto: Float32Array
 }
 
 /**
- * Renderiza a foto como malha triangular deformável (Pixi.js v8).
- * Os campos por região são pré-computados; cada mudança de intensidade só
- * recompõe o buffer de vértices (O(V)) — a GPU faz o resto.
+ * Renderiza a foto como Sprite com o WarpFilter (Pixi.js v8): cada mudança
+ * de intensidade só recompõe o campo (O(células)) e reenvia duas texturas
+ * pequenas — a GPU faz o warp e a fotometria por pixel.
  */
 export default function DeformCanvas({
   photo,
@@ -56,8 +76,10 @@ export default function DeformCanvas({
   deformations,
   profile,
   rect,
+  compare,
   onFps,
   extractRef,
+  snapshotRef,
 }: DeformCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [pixi, setPixi] = useState<PixiState | null>(null)
@@ -68,6 +90,7 @@ export default function DeformCanvas({
     if (container === null) return
     let cancelled = false
     let app: Application | null = null
+    let warp: WarpFilter | null = null
     let bitmap: ImageBitmap | null = null
 
     void (async () => {
@@ -76,7 +99,7 @@ export default function DeformCanvas({
         width: photoWidth,
         height: photoHeight,
         backgroundAlpha: 0,
-        antialias: true,
+        antialias: false,
         resolution: 1,
         autoDensity: false,
       })
@@ -93,29 +116,44 @@ export default function DeformCanvas({
       source.width = photoWidth
       source.height = photoHeight
       source.getContext('2d')?.drawImage(bitmap, 0, 0)
-      const texture = Texture.from(source)
+      const sprite = new Sprite(Texture.from(source))
 
-      const mesh = buildGridMesh(photoWidth, photoHeight, MESH_COLUMNS[profile])
-      const simpleMesh = new MeshSimple({
-        texture,
-        vertices: mesh.vertices.slice(),
-        uvs: mesh.uvs.slice(),
-        indices: mesh.indices.slice(),
-      })
-      simpleMesh.autoUpdate = true
-      instance.stage.addChild(simpleMesh)
+      const { width, height } = fieldDimensions(photoWidth, photoHeight, FIELD_MAX_SIDE[profile])
+      const filter = new WarpFilter(width, height, photoWidth, photoHeight)
+      warp = filter
+      sprite.filters = [filter]
+      instance.stage.addChild(sprite)
+
+      // Luminância na grade do campo, para a fotometria.
+      const small = document.createElement('canvas')
+      small.width = width
+      small.height = height
+      const smallContext = small.getContext('2d', { willReadFrequently: true })
+      if (smallContext === null) throw new Error('Canvas 2D indisponível.')
+      smallContext.drawImage(source, 0, 0, width, height)
+      const luma = lumaFromRgba(smallContext.getImageData(0, 0, width, height).data, width, height)
 
       instance.canvas.style.position = 'absolute'
       instance.canvas.style.pointerEvents = 'none'
       container.appendChild(instance.canvas)
 
-      setPixi({ app: instance, simpleMesh, mesh, fields: new Map(), shading: new Map() })
+      setPixi({
+        app: instance,
+        filter,
+        luma,
+        photometric: null,
+        fields: new Map(),
+        composedDisp: new Float32Array(width * height * 2),
+        composedPhoto: new Float32Array(width * height * PHOTO_CHANNELS),
+      })
     })()
 
     return () => {
       cancelled = true
       setPixi(null)
       bitmap?.close()
+      // Filtro primeiro: solta as texturas do campo antes de o renderer destruí-las.
+      warp?.destroy()
       app?.destroy(true, { children: true, texture: true })
     }
   }, [photo, photoWidth, photoHeight, profile])
@@ -130,74 +168,63 @@ export default function DeformCanvas({
     style.height = `${rect.height}px`
   }, [pixi, rect])
 
-  // Recompõe os vértices quando as intensidades mudam.
+  // Recompõe o campo quando as intensidades mudam.
   useEffect(() => {
     if (pixi === null) return
     for (const region of Object.keys(deformations) as RegionId[]) {
-      if (!pixi.fields.has(region)) {
-        pixi.fields.set(
+      if (pixi.fields.has(region)) continue
+      if (pixi.photometric === null) {
+        const start = performance.now()
+        pixi.photometric = { luma: pixi.luma, light: estimateLight(pixi.luma, segmentationMap, landmarks) }
+        performance.measure('warp:light', { start, end: performance.now() })
+      }
+      const start = performance.now()
+      pixi.fields.set(
+        region,
+        buildRegionField(
           region,
-          computeRegionField(pixi.mesh, landmarks, region, segmentationMap),
-        )
-      }
-      if (!pixi.shading.has(region)) {
-        // Camadas de luz: as MESMAS fontes do campo (máscara/elipse) viram
-        // um realce "screen" e uma meia-sombra "multiply" — a modulação de
-        // luminância que faz o warp ler como volume, sem inventar pixels.
-        const source = buildShadingSource(region, landmarks, segmentationMap)
-        const canvas = document.createElement('canvas')
-        canvas.width = source.width
-        canvas.height = source.height
-        const context = canvas.getContext('2d')
-        if (context !== null) {
-          context.putImageData(
-            // Cópia: ImageData exige backing ArrayBuffer (não ArrayBufferLike).
-            new ImageData(new Uint8ClampedArray(source.pixels), source.width, source.height),
-            0,
-            0,
-          )
-        }
-        const texture = Texture.from(canvas)
-        const offsetPx =
-          interocularDistance(landmarks) *
-          ((pixi.mesh.width + pixi.mesh.height) / 2) *
-          0.05
-
-        const makeLayer = (tint: number, blend: 'screen' | 'multiply', y: number) => {
-          const layer = new MeshSimple({
-            texture,
-            vertices: pixi.mesh.vertices.slice(),
-            uvs: pixi.mesh.uvs.slice(),
-            indices: pixi.mesh.indices.slice(),
-          })
-          layer.autoUpdate = true
-          layer.blendMode = blend
-          layer.tint = tint
-          layer.alpha = 0
-          layer.position.y = y
-          pixi.app.stage.addChild(layer)
-          return layer
-        }
-
-        // Realce sobe levemente (ápice do volume); meia-sombra desce (base).
-        const highlight = makeLayer(0xffffff, 'screen', -offsetPx * 0.35)
-        const shadow = makeLayer(0x9a9a9a, 'multiply', offsetPx * 0.7)
-        pixi.shading.set(region, { highlight, shadow, strength: source.strength })
-      }
+          landmarks,
+          segmentationMap,
+          photoWidth,
+          photoHeight,
+          FIELD_MAX_SIDE[profile],
+          pixi.photometric,
+        ),
+      )
+      performance.measure(`warp:field:${region}`, { start, end: performance.now() })
     }
 
-    const output = pixi.simpleMesh.vertices as Float32Array
-    composeVertices(pixi.mesh.vertices, pixi.fields, deformations, output)
+    const composeStart = performance.now()
+    composeFields(pixi.fields, deformations, pixi.composedDisp, pixi.composedPhoto)
+    const uploadStart = performance.now()
+    pixi.filter.setField(pixi.composedDisp, pixi.composedPhoto)
+    performance.measure('warp:compose', { start: composeStart, end: uploadStart })
+    performance.measure('warp:upload', { start: uploadStart, end: performance.now() })
+  }, [pixi, deformations, landmarks, segmentationMap, photoWidth, photoHeight, profile])
 
-    // As camadas de luz acompanham a malha deformada e escalam com o slider.
-    for (const [region, layers] of pixi.shading) {
-      const intensity = deformations[region] ?? 0
-      ;(layers.highlight.vertices as Float32Array).set(output)
-      ;(layers.shadow.vertices as Float32Array).set(output)
-      layers.highlight.alpha = intensity * layers.strength
-      layers.shadow.alpha = intensity * layers.strength * 0.45
+  // Antes/depois: só um uniform muda.
+  useEffect(() => {
+    if (pixi === null) return
+    pixi.filter.setCompare(compare)
+  }, [pixi, compare])
+
+  // Cópia do campo composto para a exportação em alta.
+  useEffect(() => {
+    if (snapshotRef === undefined) return
+    if (pixi === null) {
+      snapshotRef.current = null
+      return
     }
-  }, [pixi, deformations, landmarks, segmentationMap])
+    snapshotRef.current = () => ({
+      disp: pixi.composedDisp.slice(),
+      photo: pixi.composedPhoto.slice(),
+      fieldWidth: pixi.filter.fieldWidth,
+      fieldHeight: pixi.filter.fieldHeight,
+    })
+    return () => {
+      snapshotRef.current = null
+    }
+  }, [pixi, snapshotRef])
 
   // Medidor de FPS para o painel de debug.
   useEffect(() => {
@@ -206,7 +233,7 @@ export default function DeformCanvas({
     return () => clearInterval(interval)
   }, [pixi, onFps])
 
-  // Extração do frame deformado (guia geométrico da prévia realista).
+  // Extração do frame deformado (exportação / prévia realista).
   useEffect(() => {
     if (extractRef === undefined) return
     if (pixi === null) {

@@ -5,7 +5,7 @@
 
 import { create } from 'zustand'
 import type { RegionId } from '@/lib/anatomy'
-import type { DeformMap } from '@/lib/deform/field'
+import type { DeformMap } from '@/lib/warp/compose'
 import {
   canRedo,
   canUndo,

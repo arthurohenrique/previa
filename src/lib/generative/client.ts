@@ -5,9 +5,9 @@
  */
 
 import type { RegionId } from '@/lib/anatomy'
-import { buildShadingSource } from '@/lib/deform/shading'
 import { boxBlurAlpha, type LabelMap } from '@/lib/segmentation/mask'
 import type { Point2 } from '@/lib/quality'
+import { regionAlpha } from '@/lib/warp/regionMask'
 import {
   alphaBBox,
   compositeCrop,
@@ -137,10 +137,9 @@ export async function generateRealisticPreview(
   for (const { region, intensity } of input.activeRegions) {
     if (intensity <= 0) continue
     intensityMax = Math.max(intensityMax, intensity)
-    const source = buildShadingSource(region, input.landmarks, input.map)
+    const alpha = regionAlpha(region, input.landmarks, input.map)
     for (let i = 0; i < union.length; i++) {
-      const alpha = source.pixels[i * 4 + 3]
-      if (alpha > union[i]) union[i] = alpha
+      if (alpha[i] > union[i]) union[i] = alpha[i]
     }
   }
 

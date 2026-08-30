@@ -2,13 +2,24 @@
 
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useEffect, useRef, useState } from 'react'
-import DeformCanvas from './DeformCanvas'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import DeformCanvas, { type CompareState } from './DeformCanvas'
 import LandmarkOverlay from './LandmarkOverlay'
 import MaskOverlay from './MaskOverlay'
 import RegionHighlight from './RegionHighlight'
 import { classifyPoint, REGIONS, type RegionId } from '@/lib/anatomy'
+import { volumeLabel } from '@/lib/calibration'
 import { canRedo, canUndo } from '@/lib/deform/history'
+import { buildComparisonPdf } from '@/lib/export/pdf'
+import {
+  decodeToCanvas,
+  downloadBlob,
+  exportFilename,
+  exportSimulationPng,
+  renderSimulation,
+  withWatermark,
+  type FieldSnapshot,
+} from '@/lib/export/render'
 import {
   generateRealisticPreview,
   type GenerationProgress,
@@ -77,6 +88,7 @@ export default function SimulateScreen() {
 
   const stageRef = useRef<HTMLDivElement>(null)
 
+  const originalPhoto = useSession((s) => s.originalPhoto)
   const workingPhoto = useSession((s) => s.workingPhoto)
   const workingPhotoUrl = useSession((s) => s.workingPhotoUrl)
   const photoWidth = useSession((s) => s.photoWidth)
@@ -100,6 +112,67 @@ export default function SimulateScreen() {
   const [fps, setFps] = useState<number | null>(null)
   /** Durante o arrasto do slider o destaque some para o resultado aparecer. */
   const [adjusting, setAdjusting] = useState(false)
+
+  // Antes/depois (Fase D): "Antes" segurado e divisor arrastável.
+  const [holdBefore, setHoldBefore] = useState(false)
+  const [splitMode, setSplitMode] = useState(false)
+  const [splitX, setSplitX] = useState(0.5)
+  const compare: CompareState = useMemo(
+    () => ({ showAfter: !holdBefore, splitX: splitMode ? splitX : null }),
+    [holdBefore, splitMode, splitX],
+  )
+  const snapshotRef = useRef<(() => FieldSnapshot | null) | null>(null)
+  const [exporting, setExporting] = useState<'png' | 'pdf' | null>(null)
+  const [exportError, setExportError] = useState<string | null>(null)
+
+  const activeProcedureLines = () =>
+    (Object.keys(deformations) as RegionId[])
+      .filter((region) => (deformations[region] ?? 0) > 0)
+      .map(
+        (region) =>
+          `${REGIONS[region].procedure} — ${REGIONS[region].label}: ${volumeLabel(region, deformations[region] ?? 0)}`,
+      )
+
+  const handleExport = async (kind: 'png' | 'pdf') => {
+    const snapshot = snapshotRef.current?.()
+    if (originalPhoto === null || snapshot === null || snapshot === undefined) return
+    setExporting(kind)
+    setExportError(null)
+    try {
+      if (kind === 'png') {
+        downloadBlob(await exportSimulationPng(originalPhoto, snapshot), exportFilename('png'))
+      } else {
+        const [before, after] = await Promise.all([
+          decodeToCanvas(originalPhoto),
+          renderSimulation(originalPhoto, snapshot),
+        ])
+        const pdf = buildComparisonPdf({
+          before,
+          after: withWatermark(after),
+          procedures: activeProcedureLines(),
+        })
+        downloadBlob(pdf, exportFilename('pdf'))
+      }
+    } catch (error) {
+      console.error('[exportação]', error)
+      setExportError('Não foi possível exportar. Tente novamente.')
+    } finally {
+      setExporting(null)
+    }
+  }
+
+  const handleDividerPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    event.stopPropagation()
+    event.currentTarget.setPointerCapture(event.pointerId)
+  }
+  const handleDividerPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!event.currentTarget.hasPointerCapture(event.pointerId)) return
+    const stage = stageRef.current
+    if (stage === null || rect === null) return
+    const bounds = stage.getBoundingClientRect()
+    const px = event.clientX - bounds.left - rect.left
+    setSplitX(Math.min(0.98, Math.max(0.02, px / rect.width)))
+  }
 
   // Prévia realista (Fase 5): geração local sob demanda.
   const capabilities = useSession((s) => s.capabilities)
@@ -312,10 +385,37 @@ export default function SimulateScreen() {
               deformations={deformations}
               profile={effectiveProfile}
               rect={rect}
+              compare={compare}
               onFps={setFps}
               extractRef={extractRef}
+              snapshotRef={snapshotRef}
             />
           )}
+
+        {splitMode && rect !== null && status === 'ok' && (
+          <div
+            role="slider"
+            aria-label="Divisor antes/depois"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.round(splitX * 100)}
+            onPointerDown={handleDividerPointerDown}
+            onPointerMove={handleDividerPointerMove}
+            className="absolute z-10 flex w-11 -translate-x-1/2 cursor-col-resize touch-none items-center justify-center"
+            style={{ left: rect.left + rect.width * splitX, top: rect.top, height: rect.height }}
+          >
+            <div className="h-full w-0.5 bg-white shadow-[0_0_0_1px_rgba(0,0,0,0.4)]" />
+            <div className="absolute top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-zinc-300 bg-white text-xs font-bold text-zinc-700 shadow">
+              ⇔
+            </div>
+            <span className="absolute left-0 top-2 -translate-x-full rounded-md bg-zinc-950/70 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-100">
+              Antes
+            </span>
+            <span className="absolute right-0 top-2 translate-x-full rounded-md bg-zinc-950/70 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-100">
+              Depois
+            </span>
+          </div>
+        )}
 
         {showResult && resultUrl !== null && rect !== null && (
           <div
@@ -425,7 +525,8 @@ export default function SimulateScreen() {
                   <span className="mb-1 flex items-center justify-between text-sm font-medium">
                     Intensidade
                     <span className="tabular-nums text-zinc-500 dark:text-zinc-400">
-                      {Math.round((deformations[activeRegion] ?? 0) * 100)}%
+                      {Math.round((deformations[activeRegion] ?? 0) * 100)}% ·{' '}
+                      {volumeLabel(activeRegion, deformations[activeRegion] ?? 0)}
                     </span>
                   </span>
                   <input
@@ -450,6 +551,9 @@ export default function SimulateScreen() {
                     }}
                     className="h-11 w-full accent-teal-700 dark:accent-teal-400"
                   />
+                  <span className="mt-1 block text-xs text-zinc-500 dark:text-zinc-400">
+                    Volume estimado, ilustrativo — não substitui a avaliação clínica.
+                  </span>
                 </label>
               </div>
             ) : (
@@ -489,6 +593,72 @@ export default function SimulateScreen() {
                 Zerar
               </button>
             </div>
+
+            <section aria-labelledby="comparar" className="flex flex-col gap-2">
+              <h2
+                id="comparar"
+                className="text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400"
+              >
+                Comparar e exportar
+              </h2>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onPointerDown={() => setHoldBefore(true)}
+                  onPointerUp={() => setHoldBefore(false)}
+                  onPointerLeave={() => setHoldBefore(false)}
+                  onPointerCancel={() => setHoldBefore(false)}
+                  onKeyDown={(e) => {
+                    if (e.key === ' ' || e.key === 'Enter') setHoldBefore(true)
+                  }}
+                  onKeyUp={() => setHoldBefore(false)}
+                  disabled={Object.values(deformations).every((v) => !v)}
+                  className={`${secondaryButton} flex-1 select-none touch-none`}
+                  aria-pressed={holdBefore}
+                >
+                  {holdBefore ? 'Mostrando o antes' : 'Segurar: antes'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSplitMode((value) => !value)}
+                  disabled={Object.values(deformations).every((v) => !v)}
+                  className={`${secondaryButton} flex-1`}
+                  aria-pressed={splitMode}
+                >
+                  {splitMode ? 'Fechar divisor' : 'Dividir'}
+                </button>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => void handleExport('png')}
+                  disabled={exporting !== null || originalPhoto === null}
+                  className={`${secondaryButton} flex-1`}
+                >
+                  {exporting === 'png' ? 'Gerando PNG…' : 'Exportar PNG'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleExport('pdf')}
+                  disabled={exporting !== null || originalPhoto === null}
+                  className={`${secondaryButton} flex-1`}
+                >
+                  {exporting === 'pdf' ? 'Gerando PDF…' : 'Exportar PDF'}
+                </button>
+              </div>
+              {exportError !== null && (
+                <p
+                  role="alert"
+                  className="rounded-xl border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200"
+                >
+                  {exportError}
+                </p>
+              )}
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                A exportação usa a foto em alta resolução, leva a marca d&apos;água
+                &quot;Simulação ilustrativa&quot; e fica só neste aparelho.
+              </p>
+            </section>
 
             <section aria-labelledby="previa-realista" className="flex flex-col gap-2">
               <h2

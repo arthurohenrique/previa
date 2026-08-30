@@ -65,8 +65,30 @@ export function polygonFromLandmarks(
 }
 
 /**
+ * Cobertura (0..255) de cada polígono → labelmap. Um pixel pertence à classe
+ * se a cobertura passa de meio pixel; as classes seguintes sobrescrevem as
+ * anteriores. Função pura: o canvas só produz as coberturas.
+ */
+export function labelsFromCoverage(
+  coverages: ReadonlyArray<{ classId: number; coverage: Uint8ClampedArray }>,
+  size: number,
+): Uint8Array {
+  const labels = new Uint8Array(size)
+  for (const { classId, coverage } of coverages) {
+    for (let i = 0; i < size; i++) {
+      if (coverage[i] > 127) labels[i] = classId
+    }
+  }
+  return labels
+}
+
+/**
  * Rasteriza os polígonos num labelmap. A pele entra primeiro; as regiões
  * menores sobrescrevem por cima (ordem do array REGION_POLYGONS).
+ *
+ * Cada polígono é desenhado sozinho e lido como cobertura: gravar o id da
+ * classe direto na cor faria o anti-aliasing da borda produzir ids
+ * intermediários (pele=1 e lábio=11 viram "olho", "nariz"…).
  */
 export function rasterizeLandmarkMask(
   landmarks: readonly Point2[],
@@ -79,21 +101,20 @@ export function rasterizeLandmarkMask(
   const context = canvas.getContext('2d', { willReadFrequently: true })
   if (context === null) throw new Error('Canvas 2D indisponível.')
 
-  for (const region of REGION_POLYGONS) {
+  const coverages = REGION_POLYGONS.map((region) => {
     const polygon = polygonFromLandmarks(landmarks, region.indices, width, height)
-    context.fillStyle = `rgb(${region.classId}, 0, 0)`
+    context.clearRect(0, 0, width, height)
+    context.fillStyle = '#fff'
     context.beginPath()
     context.moveTo(polygon[0][0], polygon[0][1])
     for (let i = 1; i < polygon.length; i++) context.lineTo(polygon[i][0], polygon[i][1])
     context.closePath()
     context.fill()
-  }
+    const { data } = context.getImageData(0, 0, width, height)
+    const coverage = new Uint8ClampedArray(width * height)
+    for (let i = 0; i < coverage.length; i++) coverage[i] = data[i * 4 + 3]
+    return { classId: region.classId, coverage }
+  })
 
-  const { data } = context.getImageData(0, 0, width, height)
-  const labels = new Uint8Array(width * height)
-  for (let i = 0; i < labels.length; i++) {
-    // Canal R carrega o id da classe (anti-aliasing arredonda para o vizinho).
-    labels[i] = data[i * 4]
-  }
-  return { labels, width, height }
+  return { labels: labelsFromCoverage(coverages, width * height), width, height }
 }

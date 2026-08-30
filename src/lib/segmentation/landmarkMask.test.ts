@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { polygonFromLandmarks, REGION_POLYGONS } from './landmarkMask'
+import { labelsFromCoverage, polygonFromLandmarks, REGION_POLYGONS } from './landmarkMask'
 import { FACE_CLASSES } from './mask'
 
 describe('REGION_POLYGONS', () => {
@@ -25,6 +25,26 @@ describe('REGION_POLYGONS', () => {
       expect(region.classId).toBeGreaterThan(0)
       expect(region.classId).toBeLessThan(256)
     }
+  })
+})
+
+describe('labelsFromCoverage', () => {
+  it('borda anti-aliased nunca vira classe intermediária; a última classe vence', () => {
+    const skin = new Uint8ClampedArray([255, 255, 255, 255])
+    const lip = new Uint8ClampedArray([0, 60, 128, 255]) // borda parcial
+    const labels = labelsFromCoverage(
+      [
+        { classId: FACE_CLASSES.skin, coverage: skin },
+        { classId: FACE_CLASSES.u_lip, coverage: lip },
+      ],
+      4,
+    )
+    expect(Array.from(labels)).toEqual([
+      FACE_CLASSES.skin,
+      FACE_CLASSES.skin,
+      FACE_CLASSES.u_lip,
+      FACE_CLASSES.u_lip,
+    ])
   })
 })
 

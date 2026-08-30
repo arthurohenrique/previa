@@ -39,9 +39,9 @@ Requer Node 20.9+. Os modelos de IA já estão versionados em `public/models/`
 4. **Interação** — toque/clique/caneta via Pointer Events → região anatômica
    (classe da máscara decide primeiro; sobre pele, polígono do filtro e âncoras
    com limite proporcional à distância interocular).
-5. **Deformação** — Pixi.js v8, malha triangular com densidade por perfil.
-   Modelo anatômico por região (ver abaixo), 60fps no arrasto do slider,
-   desfazer/refazer/zerar.
+5. **Deformação** — Pixi.js v8, warp por pixel na GPU (`WarpFilter`) guiado
+   por pontos de controle anatômicos interpolados por Moving Least Squares
+   (ver abaixo). Desfazer/refazer/zerar.
 6. **Configuração** (`/config`) — capacidades detectadas (WebGPU, cores,
    memória), override do perfil de execução e da estratégia de segmentação.
 
@@ -56,22 +56,46 @@ polígonos dos 478 landmarks** (~14ms) em todos os perfis; a IA continua
 implementada (Web Worker, WebGPU→WASM, progresso, pico de memória) e pode ser
 ativada manualmente em `/config`.
 
-### Modelo de deformação anatômico (revisão da Fase 4)
+### Motor de warp (reconstrução de 2026-08-30)
 
-Expansão radial em torno de um ponto lê-se como distorção (pele, barba e fundo
-se movem juntos). O modelo atual:
+O motor anterior (grade regular de 28–64 colunas deslocada por vértice, mais
+camadas de brilho `screen`/`multiply`) lia-se como distorção de foto: célula
+de ~20px contra um vermelhão de ~25px, pele esticada em vez de comprimida,
+translação uniforme tipo "liquify" no malar/mento. Foi substituído por
+`src/lib/warp/`:
 
-- **Lábios (eversão)**: o lábio escala a partir da linha da boca — a linha e os
-  dentes ficam imóveis e o vermelhão avança; o peso vem do alpha da classe na
-  máscara de segmentação (borda borrada = transição suave).
-- **Malar/mento/sulco/olheira (lift/projeção)**: translação dominante em elipse
-  ancorada nos landmarks.
-- **Confinamento**: todo campo é multiplicado pelo alpha do rosto na
-  segmentação — fundo, cabelo e roupa nunca se movem.
-- **Garantias**: teto de deslocamento por região (anti-caricato), atenuação C¹
-  sem quina, íris e dentes pinados, moldura da imagem fixa.
+- **Templates anatômicos** (`templates.ts`): por região, quais landmarks se
+  movem (vetor em unidades do rosto: interocular + eixo corrigido por
+  inclinação) e quais ficam pinados. Lábios: o contorno externo do vermelhão
+  avança na normal com perfil senoidal (zero nas comissuras), linha molhada e
+  base do nariz pinadas — a pele do filtro é comprimida, não esticada. Mento e
+  malar podem mover a silhueta; as demais regiões são confinadas à máscara do
+  rosto. Boca aberta reduz o ganho labial pela metade. Teto por região.
+- **Moving Least Squares de similaridade** (`mls.ts`, Schaefer 2006):
+  interpola exatamente os controles, é suave e linear na intensidade — o
+  campo é rasterizado UMA vez por região (`field.ts`, 512² nos perfis
+  alto/médio, 256² no baixo; 50–230ms medidos em Node) e o slider só o
+  multiplica (`compose.ts`, ~1–6ms).
+- **Campo inverso**: rasterizado já com os controles trocados (q→p), então o
+  shader faz uma única amostragem (`cor = foto(uv + t·disp(uv))`), sem
+  inversão iterativa. `maxStrain` (< 0,5) é o guardrail estético medido nos
+  testes.
+- **`WarpFilter`** (Pixi v8, GLSL + WGSL): textura `rgba16float` do campo,
+  warp por pixel na resolução da foto. Sem WebGL1.
 
-Calibração por região em `src/lib/deform/field.ts` (`REGION_DEFORM`).
+- **Camada fotométrica** (`src/lib/photometric/`): a pista de volume. A
+  direção da luz é estimada da própria foto (assimetria de luminância da
+  pele); uma pseudo-altura com a forma da região recebe um lambertiano
+  linearizado (realce no flanco voltado à luz, meia-sombra no oposto), e
+  sulco/olheira recebem "shadow lift" (a sombra da depressão é trazida à
+  luminância da pele vizinha, preservando a textura). Tudo em luminância,
+  com crominância preservada, e linear na intensidade — viaja nos canais
+  extras da mesma textura do campo.
+
+Verificado em Chromium headless (SwiftShader) com retrato real: os pixels
+alterados ficam restritos à região ajustada (lábio, malar, mento); fundo,
+cabelo, roupa e o resto do rosto são bit a bit iguais. Detalhes, números e
+decisões em [docs/plano-reconstrucao.md](docs/plano-reconstrucao.md).
 
 ### Prévia realista — IA generativa local (Fase 5)
 
@@ -138,7 +162,13 @@ src/
     landmarker.ts   MediaPipe (singleton lazy, GPU→CPU)
     anatomy.ts      toque → região anatômica
     segmentation/   máscara (IA em worker + polígonos de landmarks)
-    deform/         malha, campos de deformação, histórico undo/redo
+    warp/           referencial do rosto, MLS, templates anatômicos, campo
+                    inverso, WarpFilter (GPU), composição por intensidade
+    photometric/    luminância, direção de luz, shading lambertiano,
+                    shadow lift, bandas do lábio
+    calibration.ts  intensidade → volume estimado (mL, placeholder)
+    export/         render offscreen em alta, marca d'água, PDF (jspdf)
+    deform/         histórico undo/redo
   store/          sessão Zustand (tudo em memória — LGPD)
   workers/        segmentation.worker.ts (Transformers.js)
 ```
@@ -151,9 +181,9 @@ src/
 | 2 — Landmarks (478 pontos, overlay de debug) | ✅ inferência 40–66ms desktop |
 | 2.5 — Segmentação (portão de decisão) | ✅ portão acionado → landmarks por padrão |
 | 3 — Mapa anatômico e interação | ✅ |
-| 4 — Motor de deformação | ✅ 60fps no arrasto; modelo anatômico + shading |
+| 4 — Motor de deformação | ✅ reconstruído: warp MLS por pixel + camada fotométrica |
 | 5 — Prévia realista (IA generativa local) | ✅ carga ~28s, geração ~140s em iGPU Gen-9 |
-| Exportação antes/depois (PNG/PDF + marca d'água) | pendente |
+| Exportação antes/depois (PNG/PDF + marca d'água) | ✅ PNG em alta com o mesmo campo; PDF A4 via jspdf; "Antes" e divisor no shader |
 | Testes em Safari iOS e Chrome Android | pendente (validado só em Chromium desktop) |
 
 Decisão registrada (2026-08-24): o processamento permanece 100% no dispositivo.
