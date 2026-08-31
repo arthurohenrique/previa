@@ -163,8 +163,16 @@ entre três opções apresentadas: **relay cifrado efêmero**.
 iPhone emulado): QR gerado com aviso de "localhost"; envio ok; o corpo do
 POST no fio NÃO começa com magic de JPEG/PNG (cifrado); o computador recebeu,
 processou (682×1024, perfil Médio) e a segunda leitura do canal veio vazia
-(uso único). Typecheck, 162 testes e build limpos. Pendente: conectar o
-Vercel Blob ao projeto (exige `vercel login` do dono — passos no README).
+(uso único). Typecheck, 162 testes e build limpos.
+
+**Vercel provisionada (2026-08-30, após login do dono)**: projeto `previa`
+vinculado; Blob store `previa-relay` criado com acesso PRIVADO e conectado
+(`BLOB_READ_WRITE_TOKEN` em Production/Preview/Development). Descoberta de
+integração: store privado rejeita `access: 'public'` — o `BlobRelayStore`
+grava com `access: 'private'` e lê com o `get()` autenticado do SDK (a URL
+do blob não é pública). Teste de integração real em
+`src/lib/relay/store.blob.test.ts` (roda só quando o token existe no
+ambiente; pulado na suíte normal).
 
 ## 5. Decisões que precisam da revisão do dono do produto
 
