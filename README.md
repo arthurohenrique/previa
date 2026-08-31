@@ -30,7 +30,14 @@ Requer Node 20.9+. Os modelos de IA já estão versionados em `public/models/`
 
 ## Fluxo do produto
 
-1. **Captura** (`/`) — câmera (`getUserMedia`, `facingMode: 'user'`) ou arquivo.
+1. **Captura** (`/`) — câmera (`getUserMedia`, `facingMode: 'user'`), arquivo,
+   ou **"Receber do celular"**: o computador mostra um QR; a câmera nativa do
+   celular abre `/enviar`, a foto é sanitizada (EXIF/GPS fora) e CIFRADA no
+   celular (AES-GCM, chave só no fragmento da URL do QR — nunca chega ao
+   servidor) e trafega pelo próprio domínio como ciphertext efêmero (TTL
+   2min, uso único, apagado na entrega). Emenda à restrição nº 1 registrada
+   no CLAUDE.md. Módulos: `src/lib/relay/`, `src/app/api/relay/[id]/`,
+   `src/app/enviar/`, `src/components/capture/ReceiveFromPhone.tsx`.
    O pré-processamento corrige orientação EXIF, remove todos os metadados
    (inclusive GPS) e gera duas versões em memória: original sanitizado (≤4096px,
    para exportação futura) e imagem de trabalho no tamanho do perfil de execução.
@@ -156,6 +163,25 @@ substancialmente; sem WebGPU o recurso se declara indisponível.
   sob Turbopack.
 - Override pnpm: `@aislamov/onnxruntime-web64` → `onnxruntime-web` padrão
   (o fork exige WASM Memory64, que depende de flag de navegador).
+
+### Relay QR em produção (Vercel)
+
+Em dev/auto-hospedagem (`next start`, um processo) o relay usa memória e não
+precisa de nada. Na Vercel, funções serverless não compartilham memória:
+conecte um **Vercel Blob** ao projeto e o relay passa a usá-lo sozinho
+(detecta `BLOB_READ_WRITE_TOKEN`; o conteúdo armazenado é só ciphertext, com
+TTL de 2min e remoção na entrega). Passo a passo:
+
+```bash
+npx vercel login          # uma vez
+npx vercel link --yes     # vincula esta pasta ao projeto existente
+npx vercel blob store add previa-relay   # cria o store e injeta o token no projeto
+git push                  # o deploy via GitHub já sobe com a env
+```
+
+(Equivalente no dashboard: Storage → Create → Blob → Connect to project.)
+Importante: o celular precisa alcançar a mesma origem do computador — em dev,
+acesse pelo IP da rede (o app avisa quando você está em "localhost").
 
 ### Assets locais
 

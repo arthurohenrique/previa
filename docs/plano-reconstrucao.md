@@ -141,6 +141,31 @@ mobile), `warp:compose` (< 3ms), `warp:upload` (< 2ms), FPS no arrasto
 (≥ 55 médio, ≥ 30 baixo), exportação 4096px (< 3s), memória; aba Network sem
 domínio de terceiro.
 
+## 4b. Recurso pós-plano — Receber foto do celular por QR (2026-08-30)
+
+Pedido do dono do produto; toca a restrição nº 1, que ganhou emenda
+(aprovada pelo dono na mesma data; texto no CLAUDE.md). Desenho escolhido
+entre três opções apresentadas: **relay cifrado efêmero**.
+
+- O computador gera canal (id + chave AES-GCM 256) e mostra um QR com
+  `/enviar#id.chave` — o fragmento nunca trafega em HTTP, então o servidor
+  jamais vê a chave (`src/lib/relay/crypto.ts`, testado).
+- O celular abre a página, remove EXIF/GPS (`sanitizePhotoForTransfer`),
+  cifra e faz POST em `/api/relay/[id]` — primeiro route handler do projeto.
+- Armazenamento (`src/lib/relay/store.ts`, testado): memória em
+  dev/auto-hospedagem; **Vercel Blob** quando `BLOB_READ_WRITE_TOKEN` existe
+  (serverless não compartilha memória). Contrato: TTL 2min, uso único
+  (apaga ao entregar), teto 15MB, id validado.
+- O computador faz polling (204 = ainda nada), decifra e entra no fluxo
+  normal de captura. Botão "Copiar link" cobre o caso sem câmera de QR.
+
+**Verificado** (E2E com dois navegadores: computador Chromium + celular
+iPhone emulado): QR gerado com aviso de "localhost"; envio ok; o corpo do
+POST no fio NÃO começa com magic de JPEG/PNG (cifrado); o computador recebeu,
+processou (682×1024, perfil Médio) e a segunda leitura do canal veio vazia
+(uso único). Typecheck, 162 testes e build limpos. Pendente: conectar o
+Vercel Blob ao projeto (exige `vercel login` do dono — passos no README).
+
 ## 5. Decisões que precisam da revisão do dono do produto
 
 1. Tirar a IA generativa do caminho crítico contraria a emenda de 2026-08-24

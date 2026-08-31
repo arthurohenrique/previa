@@ -9,6 +9,7 @@ import {
   type ChangeEvent,
 } from 'react'
 import CameraView, { type CameraViewHandle } from './CameraView'
+import ReceiveFromPhone from './ReceiveFromPhone'
 import { preprocessPhoto } from '@/lib/image'
 import { detectCapabilities, pickProfile, PROFILE_PARAMS } from '@/lib/profile'
 import { selectEffectiveProfile, useSession } from '@/store/session'
@@ -226,6 +227,11 @@ export default function CaptureScreen() {
             >
               {hasPhoto ? 'Trocar arquivo' : 'Escolher arquivo'}
             </button>
+            <ReceiveFromPhone
+              onPhoto={(photo) => void processBlob(photo)}
+              disabled={processing}
+              buttonClassName={secondaryButton}
+            />
           </div>
         )}
 

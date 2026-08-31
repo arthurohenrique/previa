@@ -48,6 +48,14 @@ Regras derivadas disso, todas obrigatórias:
 1. PRIVACIDADE: a foto do paciente NUNCA sai do dispositivo. Nenhum upload, nenhuma
    chamada a API externa com a imagem, nenhum log com dados de imagem. Todo
    processamento acontece no navegador.
+   EMENDA (2026-08-30, decisão do dono do produto): a transferência da foto entre
+   os APARELHOS DO PROFISSIONAL (celular → computador, via QR code) é permitida
+   DESDE QUE (a) o EXIF/GPS seja removido no celular ANTES do envio; (b) a foto
+   seja cifrada ponta a ponta (AES-GCM) com chave que existe SOMENTE no fragmento
+   da URL do QR — o fragmento nunca trafega em requisição HTTP, então o servidor
+   (o PRÓPRIO domínio do app, nunca terceiro) vê apenas bytes cifrados;
+   (c) o ciphertext seja efêmero: TTL ≤ 2 minutos e apagado na primeira leitura.
+   Processamento e simulação continuam 100% no navegador.
 2. MODELOS LOCAIS: todos os pesos de IA e binários WASM são servidos do próprio
    domínio, a partir de /public/models. Proibido carregar de CDN do Google, do
    Hugging Face Hub ou de qualquer terceiro em tempo de execução.

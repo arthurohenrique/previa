@@ -51,6 +51,15 @@ function sanitize(file: File, maxDimension: number): Promise<File> {
   })
 }
 
+/**
+ * Sanitiza uma foto para sair do aparelho pelo relay QR (emenda à restrição
+ * nº 1): orientação aplicada, TODOS os metadados removidos (inclusive GPS)
+ * — a remoção acontece NO CELULAR, antes de qualquer cifra/envio.
+ */
+export function sanitizePhotoForTransfer(input: Blob): Promise<Blob> {
+  return sanitize(toFile(input), ORIGINAL_MAX_DIMENSION)
+}
+
 /** Lê as dimensões reais (pós-orientação) de um blob de imagem. */
 export async function readImageDimensions(
   blob: Blob,
